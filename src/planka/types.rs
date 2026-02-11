@@ -135,3 +135,17 @@ pub struct CreateListRequest {
     pub name: String,
     pub position: f64,
 }
+
+/// Request body for creating a project
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectRequest {
+    pub name: String,
+}
+
+/// Response from POST /api/projects
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCreateResponse {
+    pub item: Project,
+}

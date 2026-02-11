@@ -188,6 +188,30 @@ impl PlankaClient {
         Ok(data.included.lists)
     }
 
+    pub async fn create_project(
+        &self,
+        name: &str,
+    ) -> Result<Project, PlankaError> {
+        let body = CreateProjectRequest {
+            name: name.to_string(),
+        };
+
+        let resp = self.request(reqwest::Method::POST, "/api/projects")
+            .await?
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        let data: ProjectCreateResponse = resp.json().await?;
+        Ok(data.item)
+    }
+
     pub async fn create_card(
         &self,
         list_id: &str,

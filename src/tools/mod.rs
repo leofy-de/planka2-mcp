@@ -70,6 +70,21 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
+            name: "create_project".to_string(),
+            description: "Create a new project".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The project name"
+                    }
+                },
+                "required": ["name"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
             name: "create_board".to_string(),
             description: "Create a new board in a project".to_string(),
             input_schema: json!({
@@ -218,6 +233,7 @@ pub async fn call_tool(client: &PlankaClient, name: &str, args: Option<Value>) -
         "list_boards" => list_boards(client, args).await,
         "list_lists" => list_lists(client, args).await,
         "list_cards" => list_cards(client, args).await,
+        "create_project" => create_project(client, args).await,
         "create_board" => create_board(client, args).await,
         "create_list" => create_list(client, args).await,
         "create_card" => create_card(client, args).await,
@@ -305,6 +321,29 @@ async fn list_cards(client: &PlankaClient, args: Option<Value>) -> ToolCallResul
             ToolCallResult::text(json)
         }
         Err(e) => ToolCallResult::error(format!("Failed to list cards: {e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateProjectArgs {
+    name: String,
+}
+
+async fn create_project(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: CreateProjectArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required argument: name"),
+    };
+
+    match client.create_project(&args.name).await {
+        Ok(project) => {
+            let json = serde_json::to_string_pretty(&project).unwrap_or_default();
+            ToolCallResult::text(json)
+        }
+        Err(e) => ToolCallResult::error(format!("Failed to create project: {e}")),
     }
 }
 
@@ -484,13 +523,14 @@ mod tests {
     #[test]
     fn test_list_tools_returns_all_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 11, "Expected 11 tools");
+        assert_eq!(tools.len(), 12, "Expected 12 tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"list_projects"));
         assert!(names.contains(&"list_boards"));
         assert!(names.contains(&"list_lists"));
         assert!(names.contains(&"list_cards"));
+        assert!(names.contains(&"create_project"));
         assert!(names.contains(&"create_board"));
         assert!(names.contains(&"create_list"));
         assert!(names.contains(&"create_card"));
@@ -508,6 +548,7 @@ mod tests {
             "list_boards",
             "list_lists",
             "list_cards",
+            "create_project",
             "create_board",
             "create_list",
             "create_card",
