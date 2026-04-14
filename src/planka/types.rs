@@ -7,6 +7,10 @@ pub struct Project {
     pub name: String,
     #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,16 +20,32 @@ pub struct Board {
     pub name: String,
     #[serde(default)]
     pub position: Option<f64>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct List {
     pub id: String,
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub position: Option<f64>,
     pub board_id: String,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "type")]
+    pub list_type: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +60,22 @@ pub struct Card {
     pub position: Option<f64>,
     #[serde(default)]
     pub board_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub due_date: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub members: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub labels: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub attachments: Option<Vec<serde_json::Value>>,
 }
 
 /// Response from GET /api/projects
@@ -87,6 +123,14 @@ pub struct BoardIncluded {
     pub lists: Vec<List>,
     #[serde(default)]
     pub cards: Vec<Card>,
+    #[serde(default)]
+    pub board_memberships: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub labels: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub users: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub card_memberships: Vec<serde_json::Value>,
 }
 
 /// Response from POST /api/lists/{listId}/cards
@@ -94,6 +138,48 @@ pub struct BoardIncluded {
 #[serde(rename_all = "camelCase")]
 pub struct CardResponse {
     pub item: Card,
+}
+
+/// Response from GET /api/cards/{id}
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDetailResponse {
+    pub item: Card,
+    pub included: CardIncluded,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardIncluded {
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub task_lists: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub card_labels: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub card_memberships: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub attachments: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub users: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub custom_field_groups: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub custom_fields: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub custom_field_values: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub is_completed: bool,
+    #[serde(default)]
+    pub task_list_id: Option<String>,
 }
 
 /// Request body for creating a card
@@ -149,3 +235,4 @@ pub struct CreateProjectRequest {
 pub struct ProjectCreateResponse {
     pub item: Project,
 }
+

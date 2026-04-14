@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "planka": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "PLANKA_URL",
+        "-e",
+        "PLANKA_EMAIL",
+        "-e",
+        "PLANKA_PASSWORD",
+        "ghcr.io/leofy-de/planka2-mcp:latest"
+      ],
+      "env": {
+        "PLANKA_URL": "https://kanban.example.com",
+        "PLANKA_EMAIL": "mcp@example.com",
+        "PLANKA_PASSWORD": "your-password"
+      }
+    }
+  }
+}

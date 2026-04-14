@@ -167,7 +167,8 @@ impl PlankaClient {
             return Err(PlankaError::Status(status, body));
         }
 
-        let data: BoardResponse = resp.json().await?;
+        let body_text = resp.text().await?;
+        let data: BoardResponse = serde_json::from_str(&body_text)?;
         Ok(data.included.cards)
     }
 
@@ -184,7 +185,8 @@ impl PlankaClient {
             return Err(PlankaError::Status(status, body));
         }
 
-        let data: BoardResponse = resp.json().await?;
+        let body_text = resp.text().await?;
+        let data: BoardResponse = serde_json::from_str(&body_text)?;
         Ok(data.included.lists)
     }
 
@@ -359,11 +361,49 @@ impl PlankaClient {
         Ok(data.item)
     }
 
+    pub async fn get_card(&self, card_id: &str) -> Result<CardDetailResponse, PlankaError> {
+        let path = format!("/api/cards/{card_id}");
+        let resp = self.request(reqwest::Method::GET, &path)
+            .await?
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        let body_text = resp.text().await?;
+        let data: CardDetailResponse = serde_json::from_str(&body_text)?;
+        Ok(data)
+    }
+
     pub async fn delete_card(&self, card_id: &str) -> Result<(), PlankaError> {
         let path = format!("/api/cards/{card_id}");
 
         let resp = self.request(reqwest::Method::DELETE, &path)
             .await?
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        Ok(())
+    }
+
+    pub async fn add_comment(&self, card_id: &str, text: &str) -> Result<(), PlankaError> {
+        let path = format!("/api/cards/{card_id}/comments");
+
+        let body = serde_json::json!({ "text": text });
+
+        let resp = self.request(reqwest::Method::POST, &path)
+            .await?
+            .json(&body)
             .send()
             .await?;
 

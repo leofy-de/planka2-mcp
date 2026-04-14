@@ -94,6 +94,8 @@ src/
 
 ## Planka API Endpoints
 
+Find all Endpoints in the swagger docs: https://plankanban.github.io/planka/swagger-ui/
+
 - `POST /api/access-tokens` - Login (email/password auth)
 - `GET /api/projects` - List projects
 - `GET /api/projects/{projectId}` - Get project with boards

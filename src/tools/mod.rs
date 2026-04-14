@@ -16,32 +16,23 @@ pub fn list_tools() -> Vec<Tool> {
     vec![
         Tool {
             name: "list_projects".to_string(),
-            description: "List all Planka projects".to_string(),
+            description: "Get all Planka projects with board counts. Use to discover available projects and their IDs.".to_string(),
             input_schema: json!({
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of projects to return (default: 50)",
+                        "default": 50
+                    }
+                },
                 "required": []
             }),
             annotations: programmatic_annotations(),
         },
         Tool {
-            name: "list_boards".to_string(),
-            description: "List all boards in a project".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "The project ID"
-                    }
-                },
-                "required": ["project_id"]
-            }),
-            annotations: programmatic_annotations(),
-        },
-        Tool {
-            name: "list_lists".to_string(),
-            description: "List all lists (columns) on a board".to_string(),
+            name: "list_board_summary".to_string(),
+            description: "Get a board overview with lists and card counts. Use to understand board structure and find specific lists/cards.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -55,14 +46,27 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
-            name: "list_cards".to_string(),
-            description: "List all cards on a board".to_string(),
+            name: "find_cards".to_string(),
+            description: "Search for cards on a board by name or list. Returns compact card summaries (id, name, list). Use to locate specific tasks.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "board_id": {
                         "type": "string",
                         "description": "The board ID"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional search term to filter cards by name (case-insensitive)"
+                    },
+                    "list_id": {
+                        "type": "string",
+                        "description": "Optional list ID to filter cards by list"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of cards to return (default: 50)",
+                        "default": 50
                     }
                 },
                 "required": ["board_id"]
@@ -70,61 +74,23 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
-            name: "create_project".to_string(),
-            description: "Create a new project".to_string(),
+            name: "get_card".to_string(),
+            description: "Get full details of a specific card including complete description. Use after find_cards when you need the full content.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "name": {
+                    "card_id": {
                         "type": "string",
-                        "description": "The project name"
+                        "description": "The card ID"
                     }
                 },
-                "required": ["name"]
-            }),
-            annotations: programmatic_annotations(),
-        },
-        Tool {
-            name: "create_board".to_string(),
-            description: "Create a new board in a project".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "The project ID to create the board in"
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "The board name"
-                    }
-                },
-                "required": ["project_id", "name"]
-            }),
-            annotations: programmatic_annotations(),
-        },
-        Tool {
-            name: "create_list".to_string(),
-            description: "Create a new list (column) on a board".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "board_id": {
-                        "type": "string",
-                        "description": "The board ID to create the list on"
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "The list name"
-                    }
-                },
-                "required": ["board_id", "name"]
+                "required": ["card_id"]
             }),
             annotations: programmatic_annotations(),
         },
         Tool {
             name: "create_card".to_string(),
-            description: "Create a new card in a list".to_string(),
+            description: "Create a new task card in a list. Returns the created card ID.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -134,7 +100,7 @@ pub fn list_tools() -> Vec<Tool> {
                     },
                     "name": {
                         "type": "string",
-                        "description": "The card title"
+                        "description": "The card title (required)"
                     },
                     "description": {
                         "type": "string",
@@ -147,7 +113,7 @@ pub fn list_tools() -> Vec<Tool> {
         },
         Tool {
             name: "update_card".to_string(),
-            description: "Update a card's name or description".to_string(),
+            description: "Update a card's title or description.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -170,7 +136,7 @@ pub fn list_tools() -> Vec<Tool> {
         },
         Tool {
             name: "move_card".to_string(),
-            description: "Move a card to a different list".to_string(),
+            description: "Move a card to a different list (e.g., from 'Todo' to 'In Progress').".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -181,10 +147,6 @@ pub fn list_tools() -> Vec<Tool> {
                     "list_id": {
                         "type": "string",
                         "description": "The target list ID"
-                    },
-                    "position": {
-                        "type": "number",
-                        "description": "Position in the list (optional)"
                     }
                 },
                 "required": ["card_id", "list_id"]
@@ -192,8 +154,27 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
+            name: "add_comment".to_string(),
+            description: "Post a comment on a card. Use to add summaries, status updates, or notes after completing work.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card ID to comment on"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The comment text (supports Markdown)"
+                    }
+                },
+                "required": ["card_id", "text"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
             name: "delete_card".to_string(),
-            description: "Delete a card".to_string(),
+            description: "Delete a card permanently (destructive operation - not recommended).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -204,23 +185,6 @@ pub fn list_tools() -> Vec<Tool> {
                 },
                 "required": ["card_id"]
             }),
-            // Not enabled for programmatic calling (destructive operation)
-            annotations: None,
-        },
-        Tool {
-            name: "delete_list".to_string(),
-            description: "Delete a list and all its cards".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "list_id": {
-                        "type": "string",
-                        "description": "The list ID to delete"
-                    }
-                },
-                "required": ["list_id"]
-            }),
-            // Not enabled for programmatic calling (destructive operation)
             annotations: None,
         },
     ]
@@ -229,26 +193,51 @@ pub fn list_tools() -> Vec<Tool> {
 /// Dispatch a tool call to the appropriate handler
 pub async fn call_tool(client: &PlankaClient, name: &str, args: Option<Value>) -> ToolCallResult {
     match name {
-        "list_projects" => list_projects(client).await,
-        "list_boards" => list_boards(client, args).await,
-        "list_lists" => list_lists(client, args).await,
-        "list_cards" => list_cards(client, args).await,
-        "create_project" => create_project(client, args).await,
-        "create_board" => create_board(client, args).await,
-        "create_list" => create_list(client, args).await,
+        "list_projects" => list_projects(client, args).await,
+        "list_board_summary" => list_board_summary(client, args).await,
+        "find_cards" => find_cards(client, args).await,
         "create_card" => create_card(client, args).await,
         "update_card" => update_card(client, args).await,
         "move_card" => move_card(client, args).await,
+        "get_card" => get_card(client, args).await,
+        "add_comment" => add_comment(client, args).await,
         "delete_card" => delete_card(client, args).await,
-        "delete_list" => delete_list(client, args).await,
         _ => ToolCallResult::error(format!("Unknown tool: {name}")),
     }
 }
 
-async fn list_projects(client: &PlankaClient) -> ToolCallResult {
+#[derive(Deserialize)]
+struct ListProjectsArgs {
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    50
+}
+
+async fn list_projects(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: ListProjectsArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(_) => ListProjectsArgs { limit: 50 },
+        },
+        None => ListProjectsArgs { limit: 50 },
+    };
+
     match client.list_projects().await {
         Ok(projects) => {
-            let json = serde_json::to_string_pretty(&projects).unwrap_or_default();
+            let limited = projects.iter().take(args.limit).collect::<Vec<_>>();
+            let compact: Vec<serde_json::Value> = limited
+                .iter()
+                .map(|p| {
+                    json!({
+                        "id": p.id,
+                        "name": p.name
+                    })
+                })
+                .collect();
+            let json = serde_json::to_string_pretty(&compact).unwrap_or_default();
             ToolCallResult::text(json)
         }
         Err(e) => ToolCallResult::error(format!("Failed to list projects: {e}")),
@@ -256,35 +245,12 @@ async fn list_projects(client: &PlankaClient) -> ToolCallResult {
 }
 
 #[derive(Deserialize)]
-struct ListBoardsArgs {
-    project_id: String,
-}
-
-async fn list_boards(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: ListBoardsArgs = match args {
-        Some(v) => match serde_json::from_value(v) {
-            Ok(a) => a,
-            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
-        },
-        None => return ToolCallResult::error("Missing required argument: project_id"),
-    };
-
-    match client.list_boards(&args.project_id).await {
-        Ok(boards) => {
-            let json = serde_json::to_string_pretty(&boards).unwrap_or_default();
-            ToolCallResult::text(json)
-        }
-        Err(e) => ToolCallResult::error(format!("Failed to list boards: {e}")),
-    }
-}
-
-#[derive(Deserialize)]
-struct ListListsArgs {
+struct BoardSummaryArgs {
     board_id: String,
 }
 
-async fn list_lists(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: ListListsArgs = match args {
+async fn list_board_summary(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: BoardSummaryArgs = match args {
         Some(v) => match serde_json::from_value(v) {
             Ok(a) => a,
             Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
@@ -292,22 +258,57 @@ async fn list_lists(client: &PlankaClient, args: Option<Value>) -> ToolCallResul
         None => return ToolCallResult::error("Missing required argument: board_id"),
     };
 
-    match client.list_lists(&args.board_id).await {
-        Ok(lists) => {
-            let json = serde_json::to_string_pretty(&lists).unwrap_or_default();
-            ToolCallResult::text(json)
-        }
-        Err(e) => ToolCallResult::error(format!("Failed to list lists: {e}")),
+    let lists = match client.list_lists(&args.board_id).await {
+        Ok(l) => l,
+        Err(e) => return ToolCallResult::error(format!("Failed to list lists: {e}")),
+    };
+
+    let cards = match client.list_cards(&args.board_id).await {
+        Ok(c) => c,
+        Err(e) => return ToolCallResult::error(format!("Failed to list cards: {e}")),
+    };
+
+    // Count cards per list
+    use std::collections::HashMap;
+    let mut card_counts: HashMap<String, usize> = HashMap::new();
+    for card in &cards {
+        *card_counts.entry(card.list_id.clone()).or_insert(0) += 1;
     }
+
+    // Build compact response — skip archive/system lists (no name)
+    let list_summaries: Vec<serde_json::Value> = lists
+        .iter()
+        .filter(|l| l.name.is_some())
+        .map(|l| {
+            json!({
+                "id": l.id,
+                "name": l.name,
+                "card_count": card_counts.get(&l.id).copied().unwrap_or(0)
+            })
+        })
+        .collect();
+
+    let summary = json!({
+        "lists": list_summaries,
+        "total_cards": cards.len()
+    });
+
+    ToolCallResult::text(serde_json::to_string_pretty(&summary).unwrap_or_default())
 }
 
 #[derive(Deserialize)]
-struct ListCardsArgs {
+struct FindCardsArgs {
     board_id: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    list_id: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: usize,
 }
 
-async fn list_cards(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: ListCardsArgs = match args {
+async fn find_cards(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: FindCardsArgs = match args {
         Some(v) => match serde_json::from_value(v) {
             Ok(a) => a,
             Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
@@ -317,81 +318,51 @@ async fn list_cards(client: &PlankaClient, args: Option<Value>) -> ToolCallResul
 
     match client.list_cards(&args.board_id).await {
         Ok(cards) => {
-            let json = serde_json::to_string_pretty(&cards).unwrap_or_default();
+            let mut filtered: Vec<_> = cards
+                .iter()
+                .filter(|c| {
+                    // Filter by list_id if provided
+                    if let Some(ref list_id) = args.list_id {
+                        if c.list_id != *list_id {
+                            return false;
+                        }
+                    }
+                    // Filter by query (case-insensitive name search)
+                    if let Some(ref query) = args.query {
+                        if !c.name.to_lowercase().contains(&query.to_lowercase()) {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .collect();
+
+            // Apply limit
+            filtered.truncate(args.limit);
+
+            // Return compact format
+            let compact: Vec<serde_json::Value> = filtered
+                .iter()
+                .map(|c| {
+                    json!({
+                        "id": c.id,
+                        "name": c.name,
+                        "list_id": c.list_id,
+                        "description": c.description.as_ref().map(|d| {
+                            if d.len() > 200 {
+                                format!("{}...", &d[..200])
+                            } else {
+                                d.clone()
+                            }
+                        })
+                    })
+                })
+                .collect();
+
+            let json = serde_json::to_string_pretty(&compact).unwrap_or_default();
             ToolCallResult::text(json)
         }
-        Err(e) => ToolCallResult::error(format!("Failed to list cards: {e}")),
-    }
-}
-
-#[derive(Deserialize)]
-struct CreateProjectArgs {
-    name: String,
-}
-
-async fn create_project(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: CreateProjectArgs = match args {
-        Some(v) => match serde_json::from_value(v) {
-            Ok(a) => a,
-            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
-        },
-        None => return ToolCallResult::error("Missing required argument: name"),
-    };
-
-    match client.create_project(&args.name).await {
-        Ok(project) => {
-            let json = serde_json::to_string_pretty(&project).unwrap_or_default();
-            ToolCallResult::text(json)
-        }
-        Err(e) => ToolCallResult::error(format!("Failed to create project: {e}")),
-    }
-}
-
-#[derive(Deserialize)]
-struct CreateBoardArgs {
-    project_id: String,
-    name: String,
-}
-
-async fn create_board(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: CreateBoardArgs = match args {
-        Some(v) => match serde_json::from_value(v) {
-            Ok(a) => a,
-            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
-        },
-        None => return ToolCallResult::error("Missing required arguments: project_id, name"),
-    };
-
-    match client.create_board(&args.project_id, &args.name).await {
-        Ok(board) => {
-            let json = serde_json::to_string_pretty(&board).unwrap_or_default();
-            ToolCallResult::text(json)
-        }
-        Err(e) => ToolCallResult::error(format!("Failed to create board: {e}")),
-    }
-}
-
-#[derive(Deserialize)]
-struct CreateListArgs {
-    board_id: String,
-    name: String,
-}
-
-async fn create_list(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: CreateListArgs = match args {
-        Some(v) => match serde_json::from_value(v) {
-            Ok(a) => a,
-            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
-        },
-        None => return ToolCallResult::error("Missing required arguments: board_id, name"),
-    };
-
-    match client.create_list(&args.board_id, &args.name).await {
-        Ok(list) => {
-            let json = serde_json::to_string_pretty(&list).unwrap_or_default();
-            ToolCallResult::text(json)
-        }
-        Err(e) => ToolCallResult::error(format!("Failed to create list: {e}")),
+        Err(e) => ToolCallResult::error(format!("Failed to find cards: {e}")),
     }
 }
 
@@ -416,8 +387,13 @@ async fn create_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
         .await
     {
         Ok(card) => {
-            let json = serde_json::to_string_pretty(&card).unwrap_or_default();
-            ToolCallResult::text(json)
+            let result = json!({
+                "id": card.id,
+                "name": card.name,
+                "list_id": card.list_id,
+                "message": "Card created successfully"
+            });
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
         Err(e) => ToolCallResult::error(format!("Failed to create card: {e}")),
     }
@@ -444,8 +420,12 @@ async fn update_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
         .await
     {
         Ok(card) => {
-            let json = serde_json::to_string_pretty(&card).unwrap_or_default();
-            ToolCallResult::text(json)
+            let result = json!({
+                "id": card.id,
+                "name": card.name,
+                "message": "Card updated successfully"
+            });
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
         Err(e) => ToolCallResult::error(format!("Failed to update card: {e}")),
     }
@@ -455,7 +435,6 @@ async fn update_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
 struct MoveCardArgs {
     card_id: String,
     list_id: String,
-    position: Option<f64>,
 }
 
 async fn move_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
@@ -467,12 +446,77 @@ async fn move_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult
         None => return ToolCallResult::error("Missing required arguments: card_id, list_id"),
     };
 
-    match client.move_card(&args.card_id, &args.list_id, args.position).await {
+    match client.move_card(&args.card_id, &args.list_id, None).await {
         Ok(card) => {
-            let json = serde_json::to_string_pretty(&card).unwrap_or_default();
-            ToolCallResult::text(json)
+            let result = json!({
+                "id": card.id,
+                "name": card.name,
+                "list_id": card.list_id,
+                "message": "Card moved successfully"
+            });
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
         Err(e) => ToolCallResult::error(format!("Failed to move card: {e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct GetCardArgs {
+    card_id: String,
+}
+
+async fn get_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: GetCardArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required argument: card_id"),
+    };
+
+    match client.get_card(&args.card_id).await {
+        Ok(detail) => {
+            let card = &detail.item;
+            let tasks: Vec<serde_json::Value> = detail.included.tasks
+                .iter()
+                .map(|t| json!({
+                    "name": t.name,
+                    "done": t.is_completed
+                }))
+                .collect();
+
+            let result = json!({
+                "id": card.id,
+                "name": card.name,
+                "list_id": card.list_id,
+                "description": card.description,
+                "tasks": tasks
+            });
+
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+        }
+        Err(e) => ToolCallResult::error(format!("Failed to get card: {e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct AddCommentArgs {
+    card_id: String,
+    text: String,
+}
+
+async fn add_comment(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: AddCommentArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required arguments: card_id, text"),
+    };
+
+    match client.add_comment(&args.card_id, &args.text).await {
+        Ok(()) => ToolCallResult::text("Comment added successfully"),
+        Err(e) => ToolCallResult::error(format!("Failed to add comment: {e}")),
     }
 }
 
@@ -496,25 +540,6 @@ async fn delete_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
     }
 }
 
-#[derive(Deserialize)]
-struct DeleteListArgs {
-    list_id: String,
-}
-
-async fn delete_list(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
-    let args: DeleteListArgs = match args {
-        Some(v) => match serde_json::from_value(v) {
-            Ok(a) => a,
-            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
-        },
-        None => return ToolCallResult::error("Missing required argument: list_id"),
-    };
-
-    match client.delete_list(&args.list_id).await {
-        Ok(()) => ToolCallResult::text("List deleted successfully"),
-        Err(e) => ToolCallResult::error(format!("Failed to delete list: {e}")),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -523,21 +548,18 @@ mod tests {
     #[test]
     fn test_list_tools_returns_all_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 12, "Expected 12 tools");
+        assert_eq!(tools.len(), 9, "Expected 9 tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"list_projects"));
-        assert!(names.contains(&"list_boards"));
-        assert!(names.contains(&"list_lists"));
-        assert!(names.contains(&"list_cards"));
-        assert!(names.contains(&"create_project"));
-        assert!(names.contains(&"create_board"));
-        assert!(names.contains(&"create_list"));
+        assert!(names.contains(&"list_board_summary"));
+        assert!(names.contains(&"find_cards"));
+        assert!(names.contains(&"get_card"));
         assert!(names.contains(&"create_card"));
         assert!(names.contains(&"update_card"));
         assert!(names.contains(&"move_card"));
+        assert!(names.contains(&"add_comment"));
         assert!(names.contains(&"delete_card"));
-        assert!(names.contains(&"delete_list"));
     }
 
     #[test]
@@ -545,15 +567,13 @@ mod tests {
         let tools = list_tools();
         let programmatic_tools = [
             "list_projects",
-            "list_boards",
-            "list_lists",
-            "list_cards",
-            "create_project",
-            "create_board",
-            "create_list",
+            "list_board_summary",
+            "find_cards",
+            "get_card",
             "create_card",
             "update_card",
             "move_card",
+            "add_comment",
         ];
 
         for tool_name in programmatic_tools {
@@ -574,16 +594,12 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_tools_excluded_from_programmatic_calling() {
+    fn test_delete_tool_excluded_from_programmatic_calling() {
         let tools = list_tools();
-        let delete_tools = ["delete_card", "delete_list"];
-
-        for tool_name in delete_tools {
-            let tool = tools.iter().find(|t| t.name == tool_name).unwrap();
-            assert!(
-                tool.annotations.is_none(),
-                "{tool_name} should NOT have annotations (destructive operation)"
-            );
-        }
+        let tool = tools.iter().find(|t| t.name == "delete_card").unwrap();
+        assert!(
+            tool.annotations.is_none(),
+            "delete_card should NOT have annotations (destructive operation)"
+        );
     }
 }
