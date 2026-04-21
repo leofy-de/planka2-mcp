@@ -219,12 +219,13 @@ impl PlankaClient {
         list_id: &str,
         name: &str,
         description: Option<&str>,
+        card_type: &str,
     ) -> Result<Card, PlankaError> {
         let path = format!("/api/lists/{list_id}/cards");
 
         let body = CreateCardRequest {
             name: name.to_string(),
-            card_type: "task".to_string(),
+            card_type: card_type.to_string(),
             description: description.map(|s| s.to_string()),
             position: 65535.0,
         };

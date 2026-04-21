@@ -8,31 +8,20 @@ This is a Rust MCP (Model Context Protocol) server that integrates with self-hos
 
 ## Build and Run Commands
 
+**IMPORTANT: `cargo` is not installed in this environment. Always use Docker to build.**
+
 ```bash
-# Build
-cargo build --release
+# Build using Docker (produces ./planka-mcp binary)
+docker build -t planka-mcp-build . && \
+  docker create --name planka-mcp-extract planka-mcp-build && \
+  docker cp planka-mcp-extract:/usr/local/bin/planka-mcp ./planka-mcp && \
+  docker rm planka-mcp-extract
 
 # Run (requires environment variables)
-./target/release/planka-mcp
-
-# Development build and run
-cargo run
-
-# Run tests
-cargo test
-
-# Run a single test
-cargo test test_name
-
-# Check code without building
-cargo check
-
-# Format code
-cargo fmt
-
-# Lint
-cargo clippy
+./planka-mcp
 ```
+
+After any code change: rebuild with Docker and extract the binary before testing or committing.
 
 ## Environment Variables
 
@@ -41,6 +30,7 @@ Required configuration (set before running):
 - Authentication (one of):
   - `PLANKA_TOKEN` - Bearer token (preferred)
   - `PLANKA_EMAIL` + `PLANKA_PASSWORD` - Login credentials
+- `PLANKA_DEFAULT_CARD_TYPE` - Default card type for `create_card` (optional, defaults to `"task"`). Planka instances can be configured with custom card type whitelists (e.g. `"project"`, `"story"`). Set this if the default `"task"` is rejected by your instance.
 
 ## Architecture
 
@@ -77,7 +67,7 @@ src/
 | `list_cards` | List cards on a board (`board_id` param) |
 | `create_board` | Create board (`project_id`, `name`) - requires Project Manager role |
 | `create_list` | Create list (`board_id`, `name`) |
-| `create_card` | Create card (`list_id`, `name`, optional `description`) |
+| `create_card` | Create card (`list_id`, `name`, optional `description`, optional `card_type`) |
 | `update_card` | Update card (`card_id`, optional `name`, optional `description`) |
 | `move_card` | Move card (`card_id`, `list_id`, optional `position`) |
 | `delete_card` | Delete card (`card_id`) |

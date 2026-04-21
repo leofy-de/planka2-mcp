@@ -105,6 +105,10 @@ pub fn list_tools() -> Vec<Tool> {
                     "description": {
                         "type": "string",
                         "description": "Optional card description"
+                    },
+                    "card_type": {
+                        "type": "string",
+                        "description": "Card type (e.g. 'task', 'project', 'story'). Defaults to PLANKA_DEFAULT_CARD_TYPE env var or 'task'."
                     }
                 },
                 "required": ["list_id", "name"]
@@ -371,6 +375,7 @@ struct CreateCardArgs {
     list_id: String,
     name: String,
     description: Option<String>,
+    card_type: Option<String>,
 }
 
 async fn create_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
@@ -382,8 +387,11 @@ async fn create_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
         None => return ToolCallResult::error("Missing required arguments: list_id, name"),
     };
 
+    let card_type = args.card_type
+        .unwrap_or_else(|| std::env::var("PLANKA_DEFAULT_CARD_TYPE").unwrap_or_else(|_| "task".to_string()));
+
     match client
-        .create_card(&args.list_id, &args.name, args.description.as_deref())
+        .create_card(&args.list_id, &args.name, args.description.as_deref(), &card_type)
         .await
     {
         Ok(card) => {
