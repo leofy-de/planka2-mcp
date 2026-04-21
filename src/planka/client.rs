@@ -224,8 +224,9 @@ impl PlankaClient {
 
         let body = CreateCardRequest {
             name: name.to_string(),
+            card_type: "task".to_string(),
             description: description.map(|s| s.to_string()),
-            position: 65535.0, // Default position at end
+            position: 65535.0,
         };
 
         let resp = self.request(reqwest::Method::POST, &path)

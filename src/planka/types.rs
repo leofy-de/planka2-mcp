@@ -187,6 +187,8 @@ pub struct Task {
 #[serde(rename_all = "camelCase")]
 pub struct CreateCardRequest {
     pub name: String,
+    #[serde(rename = "type")]
+    pub card_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub position: f64,
