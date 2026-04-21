@@ -388,7 +388,7 @@ async fn create_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
     };
 
     let card_type = args.card_type
-        .unwrap_or_else(|| std::env::var("PLANKA_DEFAULT_CARD_TYPE").unwrap_or_else(|_| "task".to_string()));
+        .unwrap_or_else(|| std::env::var("PLANKA_DEFAULT_CARD_TYPE").unwrap_or_else(|_| "project".to_string()));
 
     match client
         .create_card(&args.list_id, &args.name, args.description.as_deref(), &card_type)

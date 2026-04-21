@@ -30,7 +30,7 @@ Required configuration (set before running):
 - Authentication (one of):
   - `PLANKA_TOKEN` - Bearer token (preferred)
   - `PLANKA_EMAIL` + `PLANKA_PASSWORD` - Login credentials
-- `PLANKA_DEFAULT_CARD_TYPE` - Default card type for `create_card` (optional, defaults to `"task"`). Planka instances can be configured with custom card type whitelists (e.g. `"project"`, `"story"`). Set this if the default `"task"` is rejected by your instance.
+- `PLANKA_DEFAULT_CARD_TYPE` - Default card type for `create_card` (optional, defaults to `"project"`). Valid values per the Planka API are `"project"` and `"story"`. There is no `"task"` type.
 
 ## Architecture
 
