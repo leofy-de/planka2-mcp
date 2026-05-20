@@ -363,6 +363,41 @@ impl PlankaClient {
         Ok(data.item)
     }
 
+    pub async fn get_board(&self, board_id: &str) -> Result<BoardResponse, PlankaError> {
+        let path = format!("/api/boards/{board_id}");
+        let resp = self.request(reqwest::Method::GET, &path)
+            .await?
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        let body_text = resp.text().await?;
+        let data: BoardResponse = serde_json::from_str(&body_text)?;
+        Ok(data)
+    }
+
+    pub async fn get_project(&self, project_id: &str) -> Result<Project, PlankaError> {
+        let path = format!("/api/projects/{project_id}");
+        let resp = self.request(reqwest::Method::GET, &path)
+            .await?
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        let data: ProjectResponse = resp.json().await?;
+        Ok(data.item)
+    }
+
     pub async fn get_card(&self, card_id: &str) -> Result<CardDetailResponse, PlankaError> {
         let path = format!("/api/cards/{card_id}");
         let resp = self.request(reqwest::Method::GET, &path)

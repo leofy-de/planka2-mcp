@@ -110,17 +110,31 @@ Set **one** of the following:
 |---|---|
 | `list_projects` | List all projects. Returns `[{id, name}]`. |
 | `list_board_summary` | Board overview with lists and card counts. Use to find list IDs. |
-| `find_cards` | Search cards by name or list. Returns compact summaries. |
-| `get_card` | Full card detail: description + task checklist. |
+| `find_cards` | Search cards by name or list. Returns compact, image-stripped summaries. |
+| `get_card` | Single card: title, sanitized description, task checklist. |
+| `get_card_context` | **One-shot resolver** for a card URL — returns card + project + board + sibling lists + labels + members + tasks. Use this as the first call when the user gives you a `…/cards/{id}` URL. |
 | `create_card` | Create a card in a list. |
-| `update_card` | Update a card's title or description. |
-| `move_card` | Move a card to a different list. |
-| `add_comment` | Post a comment on a card (summaries, status updates, notes). |
+| `update_card` | Update a card's title or description (works with just `card_id`). |
+| `move_card` | Move a card to a different list. Accepts `list_id` **or** `list_name` (resolved on the card's own board). |
+| `add_comment` | Post a comment on a card (works with just `card_id` — no discovery needed). |
 | `delete_card` | Delete a card permanently. |
 
 All tools except `delete_card` support [programmatic tool calling](https://www.anthropic.com/engineering/advanced-tool-use) (`allowed_callers: ["code_execution_20250825"]`).
 
+Card descriptions returned by `get_card`, `get_card_context`, and `find_cards` are sanitized: inline `data:image/...;base64,...` blobs are replaced with `[image omitted]`, long base64 runs with `[binary omitted]`, and the result is capped at 1500 characters. Writes via `update_card` are not modified.
+
 ### Typical workflow
+
+**From a card URL** (the fast path):
+
+```
+get_card_context(card_id from URL)
+  → add_comment(card_id, text)                    # or
+  → move_card(card_id, list_name="Done")          # or
+  → update_card(card_id, ...)
+```
+
+**Open-ended discovery**:
 
 ```
 list_projects

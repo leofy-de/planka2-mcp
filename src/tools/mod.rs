@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::mcp::types::{Tool, ToolAnnotations, ToolCallResult};
-use crate::planka::PlankaClient;
+use crate::planka::{sanitize_description, PlankaClient};
 
 /// Creates annotations enabling programmatic tool calling
 fn programmatic_annotations() -> Option<ToolAnnotations> {
@@ -74,8 +74,23 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
+            name: "get_card_context".to_string(),
+            description: "FIRST CALL when the user gives you a Planka card URL. Extract the id from `/cards/{id}` and pass it as `card_id`. Returns the card plus its project, board, sibling lists (with names and ids), board labels, board members, plus the card's own labels/members/tasks — enough to comment, move, update, or assign without any further discovery. Card description is sanitized (images stripped, capped at 1500 chars).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card ID (extract from a Planka URL like https://.../cards/{card_id})"
+                    }
+                },
+                "required": ["card_id"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
             name: "get_card".to_string(),
-            description: "Get full details of a specific card including complete description. Use after find_cards when you need the full content.".to_string(),
+            description: "Get a single card by id (name, sanitized description, list_id, tasks). Does NOT return sibling lists or board context — use `get_card_context` when you also need to know what columns exist on the board.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -117,7 +132,7 @@ pub fn list_tools() -> Vec<Tool> {
         },
         Tool {
             name: "update_card".to_string(),
-            description: "Update a card's title or description.".to_string(),
+            description: "Update a card's title or description. Works with only `card_id` + the field(s) to change. Do NOT pre-fetch the card unless you need to read the existing description to merge edits.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -140,7 +155,7 @@ pub fn list_tools() -> Vec<Tool> {
         },
         Tool {
             name: "move_card".to_string(),
-            description: "Move a card to a different list (e.g., from 'Todo' to 'In Progress').".to_string(),
+            description: "Move a card to a different list. Pass `list_name` (e.g. \"Done\") when you only know the column by name — the server resolves it on the card's own board. Pass `list_id` if you already have it. Exactly one of the two is required. Do NOT pre-fetch the board just to translate a name.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -150,16 +165,20 @@ pub fn list_tools() -> Vec<Tool> {
                     },
                     "list_id": {
                         "type": "string",
-                        "description": "The target list ID"
+                        "description": "The target list ID. Provide this OR `list_name`, not both."
+                    },
+                    "list_name": {
+                        "type": "string",
+                        "description": "Target list name (case-insensitive) on the card's own board. Provide this OR `list_id`, not both."
                     }
                 },
-                "required": ["card_id", "list_id"]
+                "required": ["card_id"]
             }),
             annotations: programmatic_annotations(),
         },
         Tool {
             name: "add_comment".to_string(),
-            description: "Post a comment on a card. Use to add summaries, status updates, or notes after completing work.".to_string(),
+            description: "Post a comment on a card. Works with only `card_id` + `text` — do NOT call `get_card` or `get_card_context` first unless you also need other context. Commenting does not require knowing the board.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -204,6 +223,7 @@ pub async fn call_tool(client: &PlankaClient, name: &str, args: Option<Value>) -
         "update_card" => update_card(client, args).await,
         "move_card" => move_card(client, args).await,
         "get_card" => get_card(client, args).await,
+        "get_card_context" => get_card_context(client, args).await,
         "add_comment" => add_comment(client, args).await,
         "delete_card" => delete_card(client, args).await,
         _ => ToolCallResult::error(format!("Unknown tool: {name}")),
@@ -352,11 +372,13 @@ async fn find_cards(client: &PlankaClient, args: Option<Value>) -> ToolCallResul
                         "id": c.id,
                         "name": c.name,
                         "list_id": c.list_id,
-                        "description": c.description.as_ref().map(|d| {
-                            if d.len() > 200 {
-                                format!("{}...", &d[..200])
+                        "description": c.description.as_deref().map(|d| {
+                            let cleaned = sanitize_description(d);
+                            if cleaned.chars().count() > 200 {
+                                let truncated: String = cleaned.chars().take(200).collect();
+                                format!("{truncated}...")
                             } else {
-                                d.clone()
+                                cleaned
                             }
                         })
                     })
@@ -442,7 +464,12 @@ async fn update_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
 #[derive(Deserialize)]
 struct MoveCardArgs {
     card_id: String,
-    list_id: String,
+    #[serde(default)]
+    list_id: Option<String>,
+    #[serde(default)]
+    list_name: Option<String>,
+    #[serde(default)]
+    position: Option<f64>,
 }
 
 async fn move_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
@@ -451,10 +478,26 @@ async fn move_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult
             Ok(a) => a,
             Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
         },
-        None => return ToolCallResult::error("Missing required arguments: card_id, list_id"),
+        None => return ToolCallResult::error("Missing required argument: card_id"),
     };
 
-    match client.move_card(&args.card_id, &args.list_id, None).await {
+    let list_id = match (args.list_id.as_deref(), args.list_name.as_deref()) {
+        (Some(_), Some(_)) => {
+            return ToolCallResult::error(
+                "Provide exactly one of list_id or list_name, not both",
+            );
+        }
+        (None, None) => {
+            return ToolCallResult::error("Provide list_id or list_name");
+        }
+        (Some(id), None) => id.to_string(),
+        (None, Some(name)) => match resolve_list_id_by_name(client, &args.card_id, name).await {
+            Ok(id) => id,
+            Err(msg) => return ToolCallResult::error(msg),
+        },
+    };
+
+    match client.move_card(&args.card_id, &list_id, args.position).await {
         Ok(card) => {
             let result = json!({
                 "id": card.id,
@@ -465,6 +508,72 @@ async fn move_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult
             ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
         Err(e) => ToolCallResult::error(format!("Failed to move card: {e}")),
+    }
+}
+
+/// Look up a list id by name on the card's own board. Returns a JSON-RPC-friendly
+/// error string that lists the available names if the lookup is unambiguous-or-missing.
+async fn resolve_list_id_by_name(
+    client: &PlankaClient,
+    card_id: &str,
+    list_name: &str,
+) -> Result<String, String> {
+    let target = list_name.trim().to_lowercase();
+    if target.is_empty() {
+        return Err("list_name is empty".to_string());
+    }
+
+    let detail = client
+        .get_card(card_id)
+        .await
+        .map_err(|e| format!("Failed to look up card while resolving list_name: {e}"))?;
+    let board_id = detail
+        .item
+        .board_id
+        .as_ref()
+        .ok_or_else(|| "Card has no board_id; cannot resolve list_name".to_string())?;
+
+    let board = client
+        .get_board(board_id)
+        .await
+        .map_err(|e| format!("Failed to fetch board while resolving list_name: {e}"))?;
+
+    let named: Vec<&crate::planka::types::List> = board
+        .included
+        .lists
+        .iter()
+        .filter(|l| l.name.is_some())
+        .collect();
+
+    let matches: Vec<&&crate::planka::types::List> = named
+        .iter()
+        .filter(|l| {
+            l.name
+                .as_ref()
+                .map(|n| n.trim().to_lowercase() == target)
+                .unwrap_or(false)
+        })
+        .collect();
+
+    match matches.len() {
+        1 => Ok(matches[0].id.clone()),
+        0 => {
+            let available: Vec<&str> = named
+                .iter()
+                .filter_map(|l| l.name.as_deref())
+                .collect();
+            Err(format!(
+                "No list named '{list_name}' on this board. Available lists: {}",
+                available.join(", ")
+            ))
+        }
+        _ => {
+            let ids: Vec<&str> = matches.iter().map(|l| l.id.as_str()).collect();
+            Err(format!(
+                "Multiple lists named '{list_name}' on this board ({}). Pass list_id instead.",
+                ids.join(", ")
+            ))
+        }
     }
 }
 
@@ -497,7 +606,7 @@ async fn get_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult 
                 "id": card.id,
                 "name": card.name,
                 "list_id": card.list_id,
-                "description": card.description,
+                "description": card.description.as_deref().map(sanitize_description),
                 "tasks": tasks
             });
 
@@ -505,6 +614,176 @@ async fn get_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult 
         }
         Err(e) => ToolCallResult::error(format!("Failed to get card: {e}")),
     }
+}
+
+#[derive(Deserialize)]
+struct GetCardContextArgs {
+    card_id: String,
+}
+
+async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: GetCardContextArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required argument: card_id"),
+    };
+
+    let detail = match client.get_card(&args.card_id).await {
+        Ok(d) => d,
+        Err(e) => return ToolCallResult::error(format!("Failed to get card: {e}")),
+    };
+    let card = &detail.item;
+
+    let board_id = match card.board_id.as_deref() {
+        Some(id) => id,
+        None => return ToolCallResult::error("Card has no board_id"),
+    };
+
+    let board_resp = match client.get_board(board_id).await {
+        Ok(b) => b,
+        Err(e) => return ToolCallResult::error(format!("Failed to get board: {e}")),
+    };
+    let board = &board_resp.item;
+    let included = &board_resp.included;
+
+    let project_json = match board.project_id.as_deref() {
+        Some(pid) => match client.get_project(pid).await {
+            Ok(p) => json!({ "id": p.id, "name": p.name }),
+            Err(_) => json!({ "id": pid }),
+        },
+        None => Value::Null,
+    };
+
+    let current_list = included
+        .lists
+        .iter()
+        .find(|l| l.id == card.list_id)
+        .map(|l| json!({ "id": l.id, "name": l.name }))
+        .unwrap_or(Value::Null);
+
+    let lists: Vec<Value> = included
+        .lists
+        .iter()
+        .filter(|l| l.name.is_some())
+        .map(|l| {
+            json!({
+                "id": l.id,
+                "name": l.name,
+                "position": l.position
+            })
+        })
+        .collect();
+
+    let label_by_id = |id: &str| -> Option<&Value> {
+        included
+            .labels
+            .iter()
+            .find(|l| l.get("id").and_then(|v| v.as_str()) == Some(id))
+    };
+    let user_by_id = |id: &str| -> Option<&Value> {
+        included
+            .users
+            .iter()
+            .chain(detail.included.users.iter())
+            .find(|u| u.get("id").and_then(|v| v.as_str()) == Some(id))
+    };
+
+    let card_labels: Vec<Value> = detail
+        .included
+        .card_labels
+        .iter()
+        .filter_map(|cl| cl.get("labelId").and_then(|v| v.as_str()))
+        .filter_map(label_by_id)
+        .map(|l| {
+            json!({
+                "id": l.get("id"),
+                "name": l.get("name"),
+                "color": l.get("color")
+            })
+        })
+        .collect();
+
+    let card_members: Vec<Value> = detail
+        .included
+        .card_memberships
+        .iter()
+        .filter_map(|m| m.get("userId").and_then(|v| v.as_str()))
+        .filter_map(user_by_id)
+        .map(|u| {
+            json!({
+                "id": u.get("id"),
+                "name": u.get("name"),
+                "username": u.get("username")
+            })
+        })
+        .collect();
+
+    let tasks: Vec<Value> = detail
+        .included
+        .tasks
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "name": t.name,
+                "is_completed": t.is_completed
+            })
+        })
+        .collect();
+
+    let board_labels: Vec<Value> = included
+        .labels
+        .iter()
+        .map(|l| {
+            json!({
+                "id": l.get("id"),
+                "name": l.get("name"),
+                "color": l.get("color")
+            })
+        })
+        .collect();
+
+    let board_members: Vec<Value> = included
+        .board_memberships
+        .iter()
+        .filter_map(|m| m.get("userId").and_then(|v| v.as_str()))
+        .filter_map(user_by_id)
+        .map(|u| {
+            json!({
+                "id": u.get("id"),
+                "name": u.get("name"),
+                "username": u.get("username")
+            })
+        })
+        .collect();
+
+    let response = json!({
+        "card": {
+            "id": card.id,
+            "name": card.name,
+            "description": card.description.as_deref().map(sanitize_description),
+            "list_id": card.list_id,
+            "position": card.position,
+            "due_date": card.due_date,
+            "labels": card_labels,
+            "members": card_members,
+            "tasks": tasks
+        },
+        "current_list": current_list,
+        "board": {
+            "id": board.id,
+            "name": board.name,
+            "project_id": board.project_id
+        },
+        "project": project_json,
+        "lists": lists,
+        "board_labels": board_labels,
+        "board_members": board_members
+    });
+
+    ToolCallResult::text(serde_json::to_string_pretty(&response).unwrap_or_default())
 }
 
 #[derive(Deserialize)]
@@ -556,13 +835,14 @@ mod tests {
     #[test]
     fn test_list_tools_returns_all_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 9, "Expected 9 tools");
+        assert_eq!(tools.len(), 10, "Expected 10 tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"list_projects"));
         assert!(names.contains(&"list_board_summary"));
         assert!(names.contains(&"find_cards"));
         assert!(names.contains(&"get_card"));
+        assert!(names.contains(&"get_card_context"));
         assert!(names.contains(&"create_card"));
         assert!(names.contains(&"update_card"));
         assert!(names.contains(&"move_card"));
@@ -578,6 +858,7 @@ mod tests {
             "list_board_summary",
             "find_cards",
             "get_card",
+            "get_card_context",
             "create_card",
             "update_card",
             "move_card",

@@ -89,7 +89,6 @@ pub struct ProjectsResponse {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectResponse {
-    #[allow(dead_code)]
     pub item: Project,
     pub included: ProjectIncluded,
 }
@@ -111,7 +110,6 @@ pub struct ProjectIncluded {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardResponse {
-    #[allow(dead_code)]
     pub item: Board,
     pub included: BoardIncluded,
 }
