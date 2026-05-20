@@ -1,0 +1,253 @@
+[
+  {
+    "name": "list_projects",
+    "description": "Get all Planka projects with board counts. Use to discover available projects and their IDs.",
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "Maximum number of projects to return (default: 50)",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "list_board_summary",
+    "description": "Get a board overview with lists and card counts. Use to understand board structure and find specific lists/cards.",
+    "inputSchema": {
+      "properties": {
+        "board_id": {
+          "description": "The board ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "find_cards",
+    "description": "Search for cards on a board by name or list. Returns compact card summaries (id, name, list). Use to locate specific tasks.",
+    "inputSchema": {
+      "properties": {
+        "board_id": {
+          "description": "The board ID",
+          "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Maximum number of cards to return (default: 50)",
+          "type": "integer"
+        },
+        "list_id": {
+          "description": "Optional list ID to filter cards by list",
+          "type": "string"
+        },
+        "query": {
+          "description": "Optional search term to filter cards by name (case-insensitive)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "get_card_context",
+    "description": "FIRST CALL when the user gives you a Planka card URL. Extract the id from `/cards/{id}` and pass it as `card_id`. Returns the card plus its project, board, sibling lists (with names and ids), board labels, board members, plus the card's own labels/members/tasks — enough to comment, move, update, or assign without any further discovery. Card description is sanitized (images stripped, capped at 1500 chars).",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID (extract from a Planka URL like https://.../cards/{card_id})",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "get_card",
+    "description": "Get a single card by id (name, sanitized description, list_id, tasks). Does NOT return sibling lists or board context — use `get_card_context` when you also need to know what columns exist on the board.",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "create_card",
+    "description": "Create a new task card in a list. Returns the created card ID.",
+    "inputSchema": {
+      "properties": {
+        "card_type": {
+          "description": "Card type (e.g. 'task', 'project', 'story'). Defaults to PLANKA_DEFAULT_CARD_TYPE env var or 'task'.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Optional card description",
+          "type": "string"
+        },
+        "list_id": {
+          "description": "The list ID to create the card in",
+          "type": "string"
+        },
+        "name": {
+          "description": "The card title (required)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "list_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "update_card",
+    "description": "Update a card's title or description. Works with only `card_id` + the field(s) to change. Do NOT pre-fetch the card unless you need to read the existing description to merge edits.",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID to update",
+          "type": "string"
+        },
+        "description": {
+          "description": "New card description (optional)",
+          "type": "string"
+        },
+        "name": {
+          "description": "New card title (optional)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "move_card",
+    "description": "Move a card to a different list. Pass `list_name` (e.g. \"Done\") when you only know the column by name — the server resolves it on the card's own board. Pass `list_id` if you already have it. Exactly one of the two is required. Do NOT pre-fetch the board just to translate a name.",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID to move",
+          "type": "string"
+        },
+        "list_id": {
+          "description": "The target list ID. Provide this OR `list_name`, not both.",
+          "type": "string"
+        },
+        "list_name": {
+          "description": "Target list name (case-insensitive) on the card's own board. Provide this OR `list_id`, not both.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "add_comment",
+    "description": "Post a comment on a card. Works with only `card_id` + `text` — do NOT call `get_card` or `get_card_context` first unless you also need other context. Commenting does not require knowing the board.",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID to comment on",
+          "type": "string"
+        },
+        "text": {
+          "description": "The comment text (supports Markdown)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "text"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "allowedCallers": [
+        "code_execution_20250825"
+      ]
+    }
+  },
+  {
+    "name": "delete_card",
+    "description": "Delete a card permanently (destructive operation - not recommended).",
+    "inputSchema": {
+      "properties": {
+        "card_id": {
+          "description": "The card ID to delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    }
+  }
+]

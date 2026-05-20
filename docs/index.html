@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>planka-mcp — Tool Catalog</title>
+    <meta
+      name="description"
+      content="Live catalog of MCP tools exposed by planka-mcp, generated on every release."
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>
+          <span class="brand">planka-mcp</span>
+          <span class="subtitle">Tool catalog</span>
+        </h1>
+        <p class="lead">
+          Self-updating reference for every MCP tool exposed by the
+          <code>planka-mcp</code> server. Generated on each release from the
+          binary itself, so it never drifts from the source of truth.
+        </p>
+        <p class="meta">
+          <a href="https://github.com/leofy-de/planka2-mcp">GitHub</a>
+          ·
+          <a href="https://github.com/leofy-de/planka2-mcp/blob/main/CHANGELOG.md">Changelog</a>
+          ·
+          <a href="https://github.com/leofy-de/planka2-mcp/blob/main/README.md">README</a>
+          ·
+          <a href="https://github.com/leofy-de/planka2-mcp/pkgs/container/planka2-mcp">Container image</a>
+          <span id="version-pill" class="pill" hidden></span>
+        </p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="callout">
+        <h2>Try it interactively with the MCP Inspector</h2>
+        <p>
+          This page is a static catalog. To poke the tools live (call
+          <code>tools/list</code>, dispatch <code>tools/call</code>, inspect
+          responses), use the official
+          <a href="https://github.com/modelcontextprotocol/inspector">MCP Inspector</a>
+          against the Docker image:
+        </p>
+        <pre><code>npx @modelcontextprotocol/inspector \
+  docker run --rm -i \
+    -e PLANKA_URL=https://kanban.example.com \
+    -e PLANKA_TOKEN=your-bearer-token \
+    ghcr.io/leofy-de/planka2-mcp:latest</code></pre>
+      </section>
+
+      <section id="toc-section">
+        <h2>Tools</h2>
+        <div id="filter-bar">
+          <input
+            type="search"
+            id="filter-input"
+            placeholder="Filter by name or description…"
+            aria-label="Filter tools"
+          />
+          <span id="tool-count" class="muted"></span>
+        </div>
+        <div id="tools" aria-live="polite"></div>
+        <p id="error" class="error" hidden></p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>
+          <a href="https://github.com/leofy-de/planka2-mcp/blob/main/LICENSE">Unlicense (public domain)</a>
+          &middot;
+          <a href="https://github.com/leofy-de/planka2-mcp">leofy-de/planka2-mcp</a>
+          &middot; Catalog generated from
+          <a href="https://github.com/leofy-de/planka2-mcp/blob/main/src/tools/mod.rs">
+            src/tools/mod.rs
+          </a>
+        </p>
+      </div>
+    </footer>
+
+    <script src="./render.js"></script>
+  </body>
+</html>

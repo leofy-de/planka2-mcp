@@ -1,0 +1,67 @@
+name: Deploy Debug Page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - ".github/workflows/pages.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build planka-mcp binary
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: planka-mcp:pages-build
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Dump tool catalog
+        run: |
+          docker run --rm planka-mcp:pages-build --dump-tools > docs/tools.json
+          docker run --rm planka-mcp:pages-build --version | awk '{print $2}' > docs/version.txt
+          jq '. | length' docs/tools.json
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
