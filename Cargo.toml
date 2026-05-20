@@ -2,8 +2,14 @@
 name = "planka-mcp"
 version = "0.1.0"
 edition = "2021"
-description = "MCP server for Planka kanban board"
-license = "MIT"
+description = "Model Context Protocol (MCP) server for Planka v2 kanban boards"
+license = "Unlicense"
+readme = "README.md"
+repository = "https://github.com/leofy-de/planka2-mcp"
+homepage = "https://github.com/leofy-de/planka2-mcp"
+documentation = "https://leofy-de.github.io/planka2-mcp/"
+keywords = ["mcp", "planka", "kanban", "llm", "anthropic"]
+categories = ["command-line-utilities", "api-bindings"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
