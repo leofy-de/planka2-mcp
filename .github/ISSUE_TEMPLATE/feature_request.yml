@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a new MCP tool or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening, check the [tool catalog](https://leofy-de.github.io/planka2-mcp/)
+        and the [Planka Swagger docs](https://plankanban.github.io/planka/swagger-ui/)
+        to see whether the underlying API supports what you need.
+
+  - type: input
+    id: tool-name
+    attributes:
+      label: Proposed tool name (if applicable)
+      description: snake_case, verb_first. e.g. `list_attachments`, `add_label`.
+      placeholder: "add_label"
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the LLM/user workflow that's currently awkward or impossible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: How do you do this today, if at all?
+
+  - type: textarea
+    id: api
+    attributes:
+      label: Relevant Planka API endpoint(s)
+      description: Link to the Swagger entry or paste the method and path.
+      placeholder: "POST /api/cards/{cardId}/labels"

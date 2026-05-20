@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Tool catalog (live)
+    url: https://leofy-de.github.io/planka2-mcp/
+    about: Browse every MCP tool, parameter, and JSON schema before opening an issue.
+  - name: Planka REST API reference
+    url: https://plankanban.github.io/planka/swagger-ui/
+    about: For questions about Planka itself (what endpoints exist, payload shapes).
+  - name: Model Context Protocol docs
+    url: https://modelcontextprotocol.io/
+    about: Protocol-level questions (transport, lifecycle, capabilities).

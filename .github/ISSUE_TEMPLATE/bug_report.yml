@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in planka-mcp behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in as much of the form
+        as you can. **Never paste tokens, passwords, or full URLs containing credentials.**
+
+  - type: input
+    id: planka-version
+    attributes:
+      label: Planka server version
+      description: e.g. 2.0.0-rc.3 — visible in your Planka instance under Settings → About.
+      placeholder: "2.x"
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-image
+    attributes:
+      label: planka-mcp image tag or build
+      description: e.g. `ghcr.io/leofy-de/planka2-mcp:0.1.0`, `latest`, or a local commit SHA.
+      placeholder: "ghcr.io/leofy-de/planka2-mcp:latest"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Cursor
+        - Cline
+        - MCP Inspector
+        - Other (please describe)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Authentication method
+      options:
+        - PLANKA_TOKEN (bearer)
+        - PLANKA_EMAIL + PLANKA_PASSWORD
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal sequence of MCP calls or actions in your client that triggers the bug.
+      placeholder: |
+        1. Configure planka-mcp with token X
+        2. Call `find_cards` with board_id=…
+        3. Observe …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      placeholder: |
+        Expected: a list of cards.
+        Actual: an empty response.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs (stderr)
+      description: |
+        Run with `RUST_LOG=debug` to get richer output. **Redact** any URLs that contain credentials.
+      render: text

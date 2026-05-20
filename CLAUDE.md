@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## See also
+
+- [AGENTS.md](AGENTS.md) — tool-design philosophy + links to MCP best-practice sources (Phil Schmid, Anthropic, the MCP spec). Read this before adding or modifying a tool.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Conventional Commits rules, PR process, MCP Inspector recipe.
+- [Live tool catalog](https://leofy-de.github.io/planka2-mcp/) — regenerated from the binary on every release.
+
 ## Project Overview
 
 This is a Rust MCP (Model Context Protocol) server that integrates with self-hosted Planka kanban instances. The server exposes Planka features as MCP tools via JSON-RPC 2.0 over stdin/stdout.
@@ -22,6 +28,12 @@ docker build -t planka-mcp-build . && \
 ```
 
 After any code change: rebuild with Docker and extract the binary before testing or committing.
+
+To inspect the live tool catalog without booting an MCP client:
+
+```bash
+./planka-mcp --dump-tools | jq '.[].name'
+```
 
 ## Environment Variables
 
@@ -59,28 +71,36 @@ src/
 
 ## MCP Tools
 
+10 tools are registered in `list_tools()` (see `src/tools/mod.rs`):
+
 | Method | Description |
 |--------|-------------|
-| `list_projects` | List all projects (no params) |
-| `list_boards` | List boards in a project (`project_id` param) |
-| `list_lists` | List lists/columns on a board (`board_id` param) |
-| `list_cards` | List cards on a board (`board_id` param) |
-| `create_board` | Create board (`project_id`, `name`) - requires Project Manager role |
-| `create_list` | Create list (`board_id`, `name`) |
-| `create_card` | Create card (`list_id`, `name`, optional `description`, optional `card_type`) |
-| `update_card` | Update card (`card_id`, optional `name`, optional `description`) |
-| `move_card` | Move card (`card_id`, `list_id`, optional `position`) |
-| `delete_card` | Delete card (`card_id`) |
-| `delete_list` | Delete list and cards (`list_id`) |
+| `list_projects` | All projects with board counts. |
+| `list_board_summary` | Board overview: lists with card counts. |
+| `find_cards` | Search cards on a board by name and/or list. Compact, image-stripped. |
+| `get_card` | Single card (title, sanitized description, list_id, tasks). |
+| `get_card_context` | One-shot resolver: card + project + board + sibling lists + labels + members. Use first when given a card URL. |
+| `create_card` | Create a card (`list_id`, `name`, optional `description`, optional `card_type`). |
+| `update_card` | Update a card (`card_id`, optional `name`, optional `description`). |
+| `move_card` | Move a card. Accepts `list_id` OR `list_name`. |
+| `add_comment` | Post a Markdown comment on a card. |
+| `delete_card` | Delete a card. **Destructive** — excluded from programmatic calling (`annotations: None`). |
+
+The test at the bottom of `src/tools/mod.rs` asserts both the count (10) and the name list; keep it in sync when adding tools.
 
 ## Adding New Tools
+
+See [CONTRIBUTING.md §4](CONTRIBUTING.md) for the full recipe. Short version:
 
 1. Add HTTP method to `PlankaClient` in `src/planka/client.rs`
 2. Add any new types to `src/planka/types.rs`
 3. In `src/tools/mod.rs`:
-   - Add `Tool` entry in `list_tools()`
+   - Add `Tool` entry in `list_tools()` (use `programmatic_annotations()` unless destructive)
    - Add match arm in `call_tool()`
    - Add handler function and args struct
+4. Update the test count + name list at the bottom of `src/tools/mod.rs`.
+
+Read [AGENTS.md](AGENTS.md) for the design patterns (compact responses, one-shot context tools, tolerant inputs, destructive-ops gating).
 
 ## Planka API Endpoints
 
