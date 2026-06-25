@@ -433,6 +433,23 @@ impl PlankaClient {
         Ok(())
     }
 
+    pub async fn get_comments(&self, card_id: &str) -> Result<CommentsResponse, PlankaError> {
+        let path = format!("/api/cards/{card_id}/comments");
+        let resp = self.request(reqwest::Method::GET, &path)
+            .await?
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        let data: CommentsResponse = resp.json().await?;
+        Ok(data)
+    }
+
     pub async fn add_comment(&self, card_id: &str, text: &str) -> Result<(), PlankaError> {
         let path = format!("/api/cards/{card_id}/comments");
 

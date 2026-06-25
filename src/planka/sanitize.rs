@@ -1,18 +1,38 @@
-/// Maximum number of characters kept in a sanitized card description.
+/// Maximum number of characters kept in a compact sanitized card description (find_cards, get_card).
 const MAX_DESCRIPTION_CHARS: usize = 1500;
 
 /// Minimum run length of base64-like chars before we treat it as a binary blob.
 const MIN_BASE64_RUN: usize = 200;
 
-/// Strip embedded images and base64 blobs from a card description, then truncate.
+/// Strip embedded images and base64 blobs from a card description, then truncate to 1500 chars.
 ///
 /// Card descriptions on real Planka instances often contain inline `data:image/...;base64,...`
 /// blobs (pasted screenshots) that blow up the agent's context window. We replace those with
 /// short placeholders and cap the final length so reads stay cheap.
+///
+/// Use this for compact tools (find_cards, get_card). For full context use `sanitize_description_full`.
 pub fn sanitize_description(raw: &str) -> String {
+    sanitize_with_cap(raw, Some(MAX_DESCRIPTION_CHARS))
+}
+
+/// Strip embedded images and base64 blobs from a card description, but keep all text content.
+///
+/// Images pasted into Planka descriptions are stored as `data:image/...;base64,...` URIs which
+/// are stripped and replaced with `[image omitted]`. This preserves all actual text content
+/// (e.g. implementation plans) without an arbitrary character cap.
+///
+/// Use this for `get_card_context` where the full description is needed for context.
+pub fn sanitize_description_full(raw: &str) -> String {
+    sanitize_with_cap(raw, None)
+}
+
+fn sanitize_with_cap(raw: &str, max_chars: Option<usize>) -> String {
     let s = strip_data_uris(raw);
     let s = strip_long_base64_runs(&s);
-    truncate_chars(&s, MAX_DESCRIPTION_CHARS)
+    match max_chars {
+        Some(max) => truncate_chars(&s, max),
+        None => s,
+    }
 }
 
 /// Replace `![alt](data:...)` markdown embeds and bare `data:image/...` URIs with `[image omitted]`.

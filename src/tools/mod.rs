@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::mcp::types::{Tool, ToolAnnotations, ToolCallResult};
-use crate::planka::{sanitize_description, PlankaClient};
+use crate::planka::{sanitize_description, sanitize_description_full, PlankaClient};
 
 /// Creates annotations enabling programmatic tool calling
 fn programmatic_annotations() -> Option<ToolAnnotations> {
@@ -75,7 +75,7 @@ pub fn list_tools() -> Vec<Tool> {
         },
         Tool {
             name: "get_card_context".to_string(),
-            description: "FIRST CALL when the user gives you a Planka card URL. Extract the id from `/cards/{id}` and pass it as `card_id`. Returns the card plus its project, board, sibling lists (with names and ids), board labels, board members, plus the card's own labels/members/tasks — enough to comment, move, update, or assign without any further discovery. Card description is sanitized (images stripped, capped at 1500 chars).".to_string(),
+            description: "FIRST CALL when the user gives you a Planka card URL. Extract the id from `/cards/{id}` and pass it as `card_id`. Returns the card plus its project, board, sibling lists (with names and ids), board labels, board members, plus the card's own labels/members/tasks/comments/attachments — enough to comment, move, update, or assign without any further discovery. Card description is fully returned with inline images stripped (data URIs replaced with [image omitted]) but NO character cap — full implementation plans and long descriptions are preserved.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -641,10 +641,17 @@ async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCal
         None => return ToolCallResult::error("Card has no board_id"),
     };
 
-    let board_resp = match client.get_board(board_id).await {
+    // Fetch board and comments in parallel (comments failure is non-fatal)
+    let (board_resp, comments_resp) = tokio::join!(
+        client.get_board(board_id),
+        client.get_comments(&args.card_id),
+    );
+
+    let board_resp = match board_resp {
         Ok(b) => b,
         Err(e) => return ToolCallResult::error(format!("Failed to get board: {e}")),
     };
+    let comments_data = comments_resp.ok();
     let board = &board_resp.item;
     let included = &board_resp.included;
 
@@ -733,6 +740,43 @@ async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCal
         })
         .collect();
 
+    // Resolve comments with author names
+    let comments: Vec<Value> = comments_data
+        .as_ref()
+        .map(|cd| {
+            cd.items.iter().map(|c| {
+                let author_name = c.user_id.as_deref().and_then(|uid| {
+                    cd.included.users.iter()
+                        .chain(detail.included.users.iter())
+                        .chain(included.users.iter())
+                        .find(|u| u.get("id").and_then(|v| v.as_str()) == Some(uid))
+                        .and_then(|u| u.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                });
+                json!({
+                    "id": c.id,
+                    "text": c.text,
+                    "author": author_name,
+                    "created_at": c.created_at
+                })
+            }).collect()
+        })
+        .unwrap_or_default();
+
+    // Surface attachment metadata (name + id; no binary content)
+    let attachments: Vec<Value> = detail
+        .included
+        .attachments
+        .iter()
+        .map(|a| {
+            json!({
+                "id": a.get("id"),
+                "name": a.get("name"),
+                "url": a.get("url"),
+                "created_at": a.get("createdAt")
+            })
+        })
+        .collect();
+
     let board_labels: Vec<Value> = included
         .labels
         .iter()
@@ -763,13 +807,15 @@ async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCal
         "card": {
             "id": card.id,
             "name": card.name,
-            "description": card.description.as_deref().map(sanitize_description),
+            "description": card.description.as_deref().map(sanitize_description_full),
             "list_id": card.list_id,
             "position": card.position,
             "due_date": card.due_date,
             "labels": card_labels,
             "members": card_members,
-            "tasks": tasks
+            "tasks": tasks,
+            "comments": comments,
+            "attachments": attachments
         },
         "current_list": current_list,
         "board": {

@@ -3,4 +3,4 @@ pub mod sanitize;
 pub mod types;
 
 pub use client::PlankaClient;
-pub use sanitize::sanitize_description;
+pub use sanitize::{sanitize_description, sanitize_description_full};

@@ -180,6 +180,38 @@ pub struct Task {
     pub task_list_id: Option<String>,
 }
 
+/// A single comment on a card.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Response from GET /api/cards/{cardId}/comments
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentsResponse {
+    pub items: Vec<Comment>,
+    #[serde(default)]
+    pub included: CommentsIncluded,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentsIncluded {
+    #[serde(default)]
+    pub users: Vec<serde_json::Value>,
+}
+
 /// Request body for creating a card
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
