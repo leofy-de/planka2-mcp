@@ -100,7 +100,7 @@ same.
 }
 ```
 
-Verify with `/mcp` inside Claude Code — `planka` should appear with 10 tools.
+Verify with `/mcp` inside Claude Code — `planka` should appear with 12 tools.
 
 > Keep credentials out of version control. For a shared per-project
 > `.mcp.json`, prefer env-var substitution or a dedicated service account.
@@ -230,8 +230,10 @@ reference, with every parameter and JSON schema. Quick summary:
 | `list_projects`       | All projects, with board counts.                                                                    |
 | `list_board_summary`  | Board overview — lists with card counts. Use to find list IDs.                                      |
 | `find_cards`          | Search cards by name and/or list. Returns compact, image-stripped summaries.                        |
-| `get_card`            | Single card: title, sanitised description, list_id, task checklist.                                 |
+| `get_card`            | Single card: title, sanitised description, list_id, task checklist, attachments (with URLs).        |
 | `get_card_context`    | **One-shot resolver** for a card URL — card + project + board + sibling lists + labels + members.   |
+| `get_attachment`      | Fetch an attachment's content: images inline, text as text, otherwise metadata + URL.               |
+| `get_card_image`      | View an image pasted inline into a card description (resolves `[inline image #N]` placeholders).    |
 | `create_card`         | Create a card in a list.                                                                            |
 | `update_card`         | Update title or description (just `card_id` plus what you want to change).                          |
 | `move_card`           | Move a card. Accepts `list_id` **or** `list_name` (resolved on the card's own board).               |
@@ -244,8 +246,9 @@ All tools except `delete_card` support
 behind a user-visible decision turn on purpose.
 
 Card descriptions returned by `get_card`, `get_card_context`, and `find_cards`
-are sanitised: inline `data:image/...;base64,...` blobs become
-`[image omitted]`, long base64 runs become `[binary omitted]`, and the result
+are sanitised: inline `data:image/...;base64,...` blobs become numbered
+placeholders like `[inline image #1: image/png, ~245 KB]` (retrievable via
+`get_card_image`), long base64 runs become `[binary omitted]`, and the result
 is capped at 1500 characters. `update_card` writes are not modified.
 
 ### Typical workflow

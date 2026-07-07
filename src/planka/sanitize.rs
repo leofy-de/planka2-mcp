@@ -35,55 +35,117 @@ fn sanitize_with_cap(raw: &str, max_chars: Option<usize>) -> String {
     }
 }
 
-/// Replace `![alt](data:...)` markdown embeds and bare `data:image/...` URIs with `[image omitted]`.
+/// An inline `data:*;base64,*` payload extracted from a card description.
+pub struct InlineImage {
+    pub mime: String,
+    pub base64_data: String,
+}
+
+/// Extract all inline data URIs from a raw description, in document order.
+///
+/// The 1-based position in this Vec matches the `#N` in the placeholders that
+/// `sanitize_description`/`sanitize_description_full` emit — both use the same
+/// parser, so `get_card_image(index: N)` always resolves to placeholder `#N`.
+pub fn extract_inline_images(raw: &str) -> Vec<InlineImage> {
+    let mut images = Vec::new();
+    let mut rest = raw;
+    while let Some(pos) = rest.find("data:") {
+        rest = &rest[pos..];
+        match parse_data_uri(rest) {
+            Some((consumed, mime, payload)) => {
+                images.push(InlineImage {
+                    mime: mime.to_string(),
+                    base64_data: payload.to_string(),
+                });
+                rest = &rest[consumed..];
+            }
+            None => rest = &rest[5..], // skip the "data:" literal, keep scanning
+        }
+    }
+    images
+}
+
+/// Parse a `data:<mime>;base64,<payload>` URI at the start of `s`.
+/// Returns (bytes consumed, mime, payload) or None if it isn't a valid data URI.
+fn parse_data_uri(s: &str) -> Option<(usize, &str, &str)> {
+    let rest = s.strip_prefix("data:")?;
+    let semi = rest.find(";base64,")?;
+    let mime = &rest[..semi];
+    if mime.is_empty()
+        || mime.len() > 100
+        || !mime.contains('/')
+        || !mime
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'+' | b'.'))
+    {
+        return None;
+    }
+    let payload_start = semi + ";base64,".len();
+    let payload_rest = &rest[payload_start..];
+    let end = payload_rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='))
+        .unwrap_or(payload_rest.len());
+    if end == 0 {
+        return None;
+    }
+    Some((5 + payload_start + end, mime, &payload_rest[..end]))
+}
+
+fn format_size(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{} KB", bytes / 1024)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// Replace inline data URIs (markdown-wrapped or bare) with numbered placeholders
+/// like `[inline image #1: image/png, ~245 KB]` so the agent can fetch them
+/// on demand via `get_card_image`.
 fn strip_data_uris(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
+    let mut index = 0usize;
 
-    loop {
-        let next_md = rest.find("![");
-        let next_data = rest.find("data:");
+    while let Some(pos) = rest.find("data:") {
+        let mut text_end = pos;
+        match parse_data_uri(&rest[pos..]) {
+            Some((consumed, mime, payload)) => {
+                let mut uri_end = pos + consumed;
 
-        let (pos, is_md) = match (next_md, next_data) {
-            (None, None) => {
-                out.push_str(rest);
-                return out;
-            }
-            (Some(p), None) => (p, true),
-            (None, Some(p)) => (p, false),
-            (Some(a), Some(b)) => {
-                if a <= b {
-                    (a, true)
-                } else {
-                    (b, false)
-                }
-            }
-        };
-
-        out.push_str(&rest[..pos]);
-        rest = &rest[pos..];
-
-        if is_md {
-            if let Some(bracket_paren) = rest.find("](") {
-                let content_start = bracket_paren + 2;
-                if rest[content_start..].starts_with("data:") {
-                    if let Some(end_paren) = rest[content_start..].find(')') {
-                        out.push_str("[image omitted]");
-                        rest = &rest[content_start + end_paren + 1..];
-                        continue;
+                // If wrapped in a markdown image `![alt](data:...)`, swallow the
+                // whole embed, not just the URI.
+                if rest[..pos].ends_with("](") {
+                    if let Some(bang) = rest[..pos - 2].rfind("![") {
+                        let alt = &rest[bang + 2..pos - 2];
+                        if !alt.contains(']') && !alt.contains('\n') {
+                            text_end = bang;
+                            if rest[uri_end..].starts_with(')') {
+                                uri_end += 1;
+                            }
+                        }
                     }
                 }
+
+                index += 1;
+                let kind = if mime.starts_with("image/") { "image" } else { "file" };
+                let size = format_size(payload.len() / 4 * 3);
+                out.push_str(&rest[..text_end]);
+                out.push_str(&format!("[inline {kind} #{index}: {mime}, ~{size}]"));
+                rest = &rest[uri_end..];
             }
-            out.push_str("![");
-            rest = &rest[2..];
-        } else {
-            let end = rest
-                .find(|c: char| c.is_whitespace() || c == ')' || c == '"' || c == '\'')
-                .unwrap_or(rest.len());
-            out.push_str("[image omitted]");
-            rest = &rest[end..];
+            None => {
+                // Not a real data URI — keep the text and continue after "data:".
+                out.push_str(&rest[..pos + 5]);
+                rest = &rest[pos + 5..];
+            }
         }
     }
+
+    out.push_str(rest);
+    out
 }
 
 /// Replace any remaining run of 200+ base64-like characters with `[binary omitted]`.
@@ -138,13 +200,62 @@ mod tests {
     #[test]
     fn strips_markdown_data_image_embed() {
         let input = "before ![pic](data:image/png;base64,AAAA) after";
-        assert_eq!(sanitize_description(input), "before [image omitted] after");
+        assert_eq!(
+            sanitize_description(input),
+            "before [inline image #1: image/png, ~3 B] after"
+        );
     }
 
     #[test]
     fn strips_bare_data_uri() {
         let input = "see data:image/png;base64,AAAABBBB here";
-        assert_eq!(sanitize_description(input), "see [image omitted] here");
+        assert_eq!(
+            sanitize_description(input),
+            "see [inline image #1: image/png, ~6 B] here"
+        );
+    }
+
+    #[test]
+    fn numbers_multiple_inline_images_in_order() {
+        let input = "a ![x](data:image/png;base64,AAAA) b data:image/jpeg;base64,BBBBCCCC c";
+        let out = sanitize_description(input);
+        assert!(out.contains("[inline image #1: image/png"), "got: {out}");
+        assert!(out.contains("[inline image #2: image/jpeg"), "got: {out}");
+    }
+
+    #[test]
+    fn labels_non_image_data_uris_as_files() {
+        let input = "doc data:application/pdf;base64,AAAA end";
+        let out = sanitize_description(input);
+        assert!(out.contains("[inline file #1: application/pdf"), "got: {out}");
+    }
+
+    #[test]
+    fn keeps_plain_data_colon_text() {
+        let input = "Update data: none yet";
+        assert_eq!(sanitize_description(input), input);
+    }
+
+    #[test]
+    fn extraction_order_matches_placeholder_numbers() {
+        let input = "![a](data:image/png;base64,AAAA) mid data:image/webp;base64,BBBB end";
+        let images = extract_inline_images(input);
+        assert_eq!(images.len(), 2);
+        assert_eq!(images[0].mime, "image/png");
+        assert_eq!(images[0].base64_data, "AAAA");
+        assert_eq!(images[1].mime, "image/webp");
+        assert_eq!(images[1].base64_data, "BBBB");
+
+        let out = sanitize_description(input);
+        assert!(out.contains("#1: image/png"), "got: {out}");
+        assert!(out.contains("#2: image/webp"), "got: {out}");
+    }
+
+    #[test]
+    fn extraction_ignores_invalid_data_uris() {
+        let images = extract_inline_images("data: nope, data:image/png;base64,QQQQ yes");
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].base64_data, "QQQQ");
     }
 
     #[test]
@@ -185,7 +296,7 @@ mod tests {
         let input = "café — données data:image/png;base64,ZZZZ ✓";
         let out = sanitize_description(input);
         assert!(out.contains("café"));
-        assert!(out.contains("[image omitted]"));
+        assert!(out.contains("[inline image #1: image/png"));
         assert!(out.contains("✓"));
     }
 }

@@ -470,6 +470,65 @@ impl PlankaClient {
         Ok(())
     }
 
+    /// Download an attachment file via its `data.url` from the Planka API.
+    ///
+    /// The `/attachments/{id}/download/{filename}` route authenticates via the
+    /// `accessToken` cookie (not the Authorization header), so the token is
+    /// sent both ways. Only URLs on the configured Planka host are allowed.
+    pub async fn download_attachment(
+        &self,
+        url: &str,
+    ) -> Result<(Vec<u8>, Option<String>), PlankaError> {
+        let parsed = Url::parse(url)
+            .map_err(|e| PlankaError::Config(format!("Invalid attachment URL: {e}")))?;
+        if parsed.host_str() != self.base_url.host_str()
+            || parsed.scheme() != self.base_url.scheme()
+        {
+            return Err(PlankaError::Config(
+                "Attachment URL does not point at the configured Planka host".into(),
+            ));
+        }
+
+        let token = self.get_token().await?;
+        let resp = self.http
+            .get(parsed)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::COOKIE, format!("accessToken={token}"))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        const MAX_DOWNLOAD_BYTES: u64 = 10 * 1024 * 1024;
+        if let Some(len) = resp.content_length() {
+            if len > MAX_DOWNLOAD_BYTES {
+                return Err(PlankaError::Config(format!(
+                    "Attachment is too large to download ({len} bytes, limit {MAX_DOWNLOAD_BYTES})"
+                )));
+            }
+        }
+
+        let content_type = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
+
+        let bytes = resp.bytes().await?;
+        if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
+            return Err(PlankaError::Config(format!(
+                "Attachment is too large to download ({} bytes, limit {MAX_DOWNLOAD_BYTES})",
+                bytes.len()
+            )));
+        }
+
+        Ok((bytes.to_vec(), content_type))
+    }
+
     pub async fn delete_list(&self, list_id: &str) -> Result<(), PlankaError> {
         let path = format!("/api/lists/{list_id}");
 

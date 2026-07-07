@@ -1,8 +1,19 @@
+use base64::engine::general_purpose::{GeneralPurpose, STANDARD as BASE64};
+use base64::engine::{DecodePaddingMode, GeneralPurposeConfig};
+use base64::Engine as _;
+
+/// Decoder for inline data URIs, which don't always carry canonical `=` padding.
+const BASE64_FORGIVING: GeneralPurpose = GeneralPurpose::new(
+    &base64::alphabet::STANDARD,
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::mcp::types::{Tool, ToolAnnotations, ToolCallResult};
-use crate::planka::{sanitize_description, sanitize_description_full, PlankaClient};
+use crate::mcp::types::{Tool, ToolAnnotations, ToolCallResult, ToolContent};
+use crate::planka::{
+    extract_inline_images, sanitize_description, sanitize_description_full, PlankaClient,
+};
 
 /// Creates annotations enabling programmatic tool calling
 fn programmatic_annotations() -> Option<ToolAnnotations> {
@@ -97,6 +108,49 @@ pub fn list_tools() -> Vec<Tool> {
                     "card_id": {
                         "type": "string",
                         "description": "The card ID"
+                    }
+                },
+                "required": ["card_id"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
+            name: "get_attachment".to_string(),
+            description: "Fetch a card attachment's content. Images are returned inline (viewable), text files as text. Pass `card_id` plus `attachment_id` OR `attachment_name` (from the `attachments` array of `get_card`/`get_card_context`). Link attachments and unsupported binary types return their URL/metadata instead. Attachment download URLs require a logged-in browser session — this tool is the only way to read file contents.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card ID the attachment belongs to"
+                    },
+                    "attachment_id": {
+                        "type": "string",
+                        "description": "The attachment ID. Provide this OR `attachment_name`, not both."
+                    },
+                    "attachment_name": {
+                        "type": "string",
+                        "description": "The attachment name (case-insensitive) on the card. Provide this OR `attachment_id`, not both."
+                    }
+                },
+                "required": ["card_id"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
+            name: "get_card_image".to_string(),
+            description: "View an image pasted inline into a card's description. Sanitized descriptions replace embedded images with numbered placeholders like `[inline image #2: image/png, ~245 KB]` — pass that number as `index` to get the actual image back (viewable). For file attachments (the card's `attachments` array) use `get_attachment` instead.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card ID"
+                    },
+                    "index": {
+                        "type": "integer",
+                        "description": "1-based inline image number, matching the `#N` in the description placeholder (default: 1)",
+                        "default": 1
                     }
                 },
                 "required": ["card_id"]
@@ -224,6 +278,8 @@ pub async fn call_tool(client: &PlankaClient, name: &str, args: Option<Value>) -
         "move_card" => move_card(client, args).await,
         "get_card" => get_card(client, args).await,
         "get_card_context" => get_card_context(client, args).await,
+        "get_attachment" => get_attachment(client, args).await,
+        "get_card_image" => get_card_image(client, args).await,
         "add_comment" => add_comment(client, args).await,
         "delete_card" => delete_card(client, args).await,
         _ => ToolCallResult::error(format!("Unknown tool: {name}")),
@@ -577,6 +633,28 @@ async fn resolve_list_id_by_name(
     }
 }
 
+/// Map a raw Planka attachment object to a compact JSON shape.
+/// Planka v2 nests the download/link URL in `data.url` (with auth required for
+/// file downloads); Planka v1 exposed it top-level, so fall back to that.
+fn attachment_summary(a: &Value) -> Value {
+    let data = a.get("data");
+    let url = data
+        .and_then(|d| d.get("url"))
+        .or_else(|| a.get("url"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    json!({
+        "id": a.get("id"),
+        "name": a.get("name"),
+        "type": a.get("type"),
+        "url": url,
+        "mime_type": data.and_then(|d| d.get("mimeType")),
+        // Field name varies across Planka 2 releases: `sizeInBytes` vs `size`
+        "size_in_bytes": data.and_then(|d| d.get("sizeInBytes").or_else(|| d.get("size"))),
+        "created_at": a.get("createdAt")
+    })
+}
+
 #[derive(Deserialize)]
 struct GetCardArgs {
     card_id: String,
@@ -602,12 +680,18 @@ async fn get_card(client: &PlankaClient, args: Option<Value>) -> ToolCallResult 
                 }))
                 .collect();
 
+            let attachments: Vec<serde_json::Value> = detail.included.attachments
+                .iter()
+                .map(attachment_summary)
+                .collect();
+
             let result = json!({
                 "id": card.id,
                 "name": card.name,
                 "list_id": card.list_id,
                 "description": card.description.as_deref().map(sanitize_description),
-                "tasks": tasks
+                "tasks": tasks,
+                "attachments": attachments
             });
 
             ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
@@ -762,19 +846,12 @@ async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCal
         })
         .unwrap_or_default();
 
-    // Surface attachment metadata (name + id; no binary content)
+    // Surface attachment metadata (name, type, download url; no binary content)
     let attachments: Vec<Value> = detail
         .included
         .attachments
         .iter()
-        .map(|a| {
-            json!({
-                "id": a.get("id"),
-                "name": a.get("name"),
-                "url": a.get("url"),
-                "created_at": a.get("createdAt")
-            })
-        })
+        .map(attachment_summary)
         .collect();
 
     let board_labels: Vec<Value> = included
@@ -833,6 +910,301 @@ async fn get_card_context(client: &PlankaClient, args: Option<Value>) -> ToolCal
 }
 
 #[derive(Deserialize)]
+struct GetAttachmentArgs {
+    card_id: String,
+    #[serde(default)]
+    attachment_id: Option<String>,
+    #[serde(default)]
+    attachment_name: Option<String>,
+}
+
+/// Raw image bytes above this are rejected — the Claude API caps images at 5 MB.
+const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+/// Text attachments are truncated to this many characters.
+const MAX_TEXT_CHARS: usize = 50_000;
+
+fn is_text_mime(mime: &str) -> bool {
+    mime.starts_with("text/")
+        || mime.ends_with("+json")
+        || mime.ends_with("+xml")
+        || matches!(
+            mime,
+            "application/json"
+                | "application/xml"
+                | "application/yaml"
+                | "application/x-yaml"
+                | "application/javascript"
+                | "application/csv"
+                | "application/sql"
+        )
+}
+
+async fn get_attachment(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: GetAttachmentArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required argument: card_id"),
+    };
+
+    let detail = match client.get_card(&args.card_id).await {
+        Ok(d) => d,
+        Err(e) => return ToolCallResult::error(format!("Failed to get card: {e}")),
+    };
+    let attachments = &detail.included.attachments;
+
+    let matched: Vec<&Value> = match (args.attachment_id.as_deref(), args.attachment_name.as_deref()) {
+        (Some(_), Some(_)) => {
+            return ToolCallResult::error(
+                "Provide exactly one of attachment_id or attachment_name, not both",
+            );
+        }
+        (None, None) => {
+            let available: Vec<String> = attachments
+                .iter()
+                .map(|a| {
+                    format!(
+                        "{} (id {})",
+                        a.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                        a.get("id").and_then(|v| v.as_str()).unwrap_or("?")
+                    )
+                })
+                .collect();
+            return ToolCallResult::error(format!(
+                "Provide attachment_id or attachment_name. Attachments on this card: {}",
+                if available.is_empty() { "none".to_string() } else { available.join(", ") }
+            ));
+        }
+        (Some(id), None) => attachments
+            .iter()
+            .filter(|a| a.get("id").and_then(|v| v.as_str()) == Some(id))
+            .collect(),
+        (None, Some(name)) => {
+            let target = name.trim().to_lowercase();
+            attachments
+                .iter()
+                .filter(|a| {
+                    a.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|n| n.trim().to_lowercase() == target)
+                        .unwrap_or(false)
+                })
+                .collect()
+        }
+    };
+
+    let attachment = match matched.len() {
+        1 => matched[0],
+        0 => {
+            let available: Vec<&str> = attachments
+                .iter()
+                .filter_map(|a| a.get("name").and_then(|v| v.as_str()))
+                .collect();
+            return ToolCallResult::error(format!(
+                "No matching attachment on this card. Available attachments: {}",
+                if available.is_empty() { "none".to_string() } else { available.join(", ") }
+            ));
+        }
+        _ => {
+            let ids: Vec<&str> = matched
+                .iter()
+                .filter_map(|a| a.get("id").and_then(|v| v.as_str()))
+                .collect();
+            return ToolCallResult::error(format!(
+                "Multiple attachments match that name ({}). Pass attachment_id instead.",
+                ids.join(", ")
+            ));
+        }
+    };
+
+    let summary = attachment_summary(attachment);
+    let att_type = attachment
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("file");
+
+    // Link attachments have nothing to download — return the URL itself.
+    if att_type == "link" {
+        return ToolCallResult::text(serde_json::to_string_pretty(&summary).unwrap_or_default());
+    }
+
+    let url = match summary.get("url").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            return ToolCallResult::error(
+                "Attachment has no download URL (unexpected Planka response shape)",
+            );
+        }
+    };
+
+    let (bytes, header_mime) = match client.download_attachment(&url).await {
+        Ok(r) => r,
+        Err(e) => return ToolCallResult::error(format!("Failed to download attachment: {e}")),
+    };
+
+    let mime = header_mime
+        .filter(|m| !m.is_empty() && m != "application/octet-stream")
+        .or_else(|| {
+            attachment
+                .get("data")
+                .and_then(|d| d.get("mimeType"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let meta = json!({
+        "id": summary.get("id"),
+        "name": summary.get("name"),
+        "mime_type": mime,
+        "size_in_bytes": bytes.len(),
+        "url": url
+    });
+    let meta_text = serde_json::to_string_pretty(&meta).unwrap_or_default();
+
+    if matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return ToolCallResult::error(format!(
+                "Image is too large to return inline ({} bytes, limit {MAX_IMAGE_BYTES}). Open it in a browser instead: {url}",
+                bytes.len()
+            ));
+        }
+        return ToolCallResult {
+            content: vec![
+                ToolContent::Text { text: meta_text },
+                ToolContent::Image {
+                    data: BASE64.encode(&bytes),
+                    mime_type: mime,
+                },
+            ],
+            is_error: None,
+        };
+    }
+
+    if is_text_mime(&mime) {
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        if text.chars().count() > MAX_TEXT_CHARS {
+            text = text.chars().take(MAX_TEXT_CHARS).collect();
+            text.push_str("\n... [truncated]");
+        }
+        return ToolCallResult {
+            content: vec![
+                ToolContent::Text { text: meta_text },
+                ToolContent::Text { text },
+            ],
+            is_error: None,
+        };
+    }
+
+    ToolCallResult::text(format!(
+        "{meta_text}\n\nThis attachment type ({mime}) cannot be displayed inline. The user can open the URL above in a logged-in browser session."
+    ))
+}
+
+#[derive(Deserialize)]
+struct GetCardImageArgs {
+    card_id: String,
+    #[serde(default = "default_image_index")]
+    index: usize,
+}
+
+fn default_image_index() -> usize {
+    1
+}
+
+async fn get_card_image(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: GetCardImageArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required argument: card_id"),
+    };
+
+    let detail = match client.get_card(&args.card_id).await {
+        Ok(d) => d,
+        Err(e) => return ToolCallResult::error(format!("Failed to get card: {e}")),
+    };
+
+    let raw_description = detail.item.description.as_deref().unwrap_or("");
+    let images = extract_inline_images(raw_description);
+
+    if images.is_empty() {
+        return ToolCallResult::error(
+            "This card's description contains no inline images. For file attachments use get_attachment.",
+        );
+    }
+    if args.index == 0 || args.index > images.len() {
+        return ToolCallResult::error(format!(
+            "Inline image #{} does not exist — the description contains {} inline image(s). Pass an index between 1 and {}.",
+            args.index,
+            images.len(),
+            images.len()
+        ));
+    }
+
+    let image = &images[args.index - 1];
+
+    let bytes = match BASE64_FORGIVING.decode(image.base64_data.as_bytes()) {
+        Ok(b) => b,
+        Err(e) => {
+            return ToolCallResult::error(format!(
+                "Inline image #{} has corrupt base64 data: {e}",
+                args.index
+            ));
+        }
+    };
+
+    // Normalize the common non-standard alias
+    let mime = if image.mime == "image/jpg" {
+        "image/jpeg".to_string()
+    } else {
+        image.mime.clone()
+    };
+
+    let meta = json!({
+        "card_id": detail.item.id,
+        "index": args.index,
+        "total_inline_images": images.len(),
+        "mime_type": mime,
+        "size_in_bytes": bytes.len()
+    });
+    let meta_text = serde_json::to_string_pretty(&meta).unwrap_or_default();
+
+    if !matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        return ToolCallResult::text(format!(
+            "{meta_text}\n\nInline data #{} is of type {mime}, which cannot be displayed as an image.",
+            args.index
+        ));
+    }
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return ToolCallResult::error(format!(
+            "Inline image #{} is too large to return ({} bytes, limit {MAX_IMAGE_BYTES}).",
+            args.index,
+            bytes.len()
+        ));
+    }
+
+    ToolCallResult {
+        content: vec![
+            ToolContent::Text { text: meta_text },
+            ToolContent::Image {
+                data: BASE64.encode(&bytes),
+                mime_type: mime,
+            },
+        ],
+        is_error: None,
+    }
+}
+
+#[derive(Deserialize)]
 struct AddCommentArgs {
     card_id: String,
     text: String,
@@ -881,7 +1253,7 @@ mod tests {
     #[test]
     fn test_list_tools_returns_all_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 10, "Expected 10 tools");
+        assert_eq!(tools.len(), 12, "Expected 12 tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"list_projects"));
@@ -889,11 +1261,73 @@ mod tests {
         assert!(names.contains(&"find_cards"));
         assert!(names.contains(&"get_card"));
         assert!(names.contains(&"get_card_context"));
+        assert!(names.contains(&"get_attachment"));
+        assert!(names.contains(&"get_card_image"));
         assert!(names.contains(&"create_card"));
         assert!(names.contains(&"update_card"));
         assert!(names.contains(&"move_card"));
         assert!(names.contains(&"add_comment"));
         assert!(names.contains(&"delete_card"));
+    }
+
+    #[test]
+    fn test_attachment_summary_reads_planka_v2_nested_url() {
+        let raw = json!({
+            "id": "123",
+            "name": "screenshot.png",
+            "type": "file",
+            "createdAt": "2026-07-07T10:00:00.000Z",
+            "data": {
+                "url": "https://kanban.local/attachments/123/download/screenshot.png",
+                "mimeType": "image/png",
+                "sizeInBytes": 4096,
+                "thumbnailUrls": { "outside360": "https://kanban.local/..." }
+            }
+        });
+        let summary = attachment_summary(&raw);
+        assert_eq!(
+            summary["url"],
+            json!("https://kanban.local/attachments/123/download/screenshot.png")
+        );
+        assert_eq!(summary["type"], json!("file"));
+        assert_eq!(summary["mime_type"], json!("image/png"));
+        assert_eq!(summary["size_in_bytes"], json!(4096));
+    }
+
+    #[test]
+    fn test_attachment_summary_falls_back_to_top_level_url() {
+        let raw = json!({
+            "id": "9",
+            "name": "spec.pdf",
+            "url": "https://kanban.local/attachments/9/download/spec.pdf"
+        });
+        let summary = attachment_summary(&raw);
+        assert_eq!(
+            summary["url"],
+            json!("https://kanban.local/attachments/9/download/spec.pdf")
+        );
+    }
+
+    #[test]
+    fn test_attachment_summary_accepts_size_field_variant() {
+        let raw = json!({
+            "id": "5",
+            "name": "report.xlsx",
+            "type": "file",
+            "data": { "size": 41582, "url": "https://kanban.local/attachments/5/download/report.xlsx" }
+        });
+        let summary = attachment_summary(&raw);
+        assert_eq!(summary["size_in_bytes"], json!(41582));
+    }
+
+    #[test]
+    fn test_is_text_mime() {
+        assert!(is_text_mime("text/plain"));
+        assert!(is_text_mime("text/csv"));
+        assert!(is_text_mime("application/json"));
+        assert!(is_text_mime("application/ld+json"));
+        assert!(!is_text_mime("application/pdf"));
+        assert!(!is_text_mime("image/png"));
     }
 
     #[test]
@@ -905,6 +1339,8 @@ mod tests {
             "find_cards",
             "get_card",
             "get_card_context",
+            "get_attachment",
+            "get_card_image",
             "create_card",
             "update_card",
             "move_card",
