@@ -71,22 +71,28 @@ src/
 
 ## MCP Tools
 
-10 tools are registered in `list_tools()` (see `src/tools/mod.rs`):
+12 tools are registered in `list_tools()` (see `src/tools/mod.rs`):
 
 | Method | Description |
 |--------|-------------|
 | `list_projects` | All projects with board counts. |
 | `list_board_summary` | Board overview: lists with card counts. |
 | `find_cards` | Search cards on a board by name and/or list. Compact, image-stripped. |
-| `get_card` | Single card (title, sanitized description, list_id, tasks). |
+| `get_card` | Single card (title, sanitized description, list_id, tasks, attachments with URLs). |
 | `get_card_context` | One-shot resolver: card + project + board + sibling lists + labels + members. Use first when given a card URL. |
+| `get_attachment` | Download an attachment's content: images as inline MCP image blocks, text files as text, other types as metadata + URL. Accepts `attachment_id` OR `attachment_name`. |
+| `get_card_image` | Return an image pasted inline into a card description as an MCP image block. Sanitized descriptions show `[inline image #N: mime, ~size]` placeholders; `index` selects which `#N`. |
 | `create_card` | Create a card (`list_id`, `name`, optional `description`, optional `card_type`). |
 | `update_card` | Update a card (`card_id`, optional `name`, optional `description`). |
 | `move_card` | Move a card. Accepts `list_id` OR `list_name`. |
 | `add_comment` | Post a Markdown comment on a card. |
 | `delete_card` | Delete a card. **Destructive** — excluded from programmatic calling (`annotations: None`). |
 
-The test at the bottom of `src/tools/mod.rs` asserts both the count (10) and the name list; keep it in sync when adding tools.
+The test at the bottom of `src/tools/mod.rs` asserts both the count (12) and the name list; keep it in sync when adding tools.
+
+**Inline description images:** `sanitize.rs` replaces `data:*;base64,*` URIs with numbered placeholders (`[inline image #1: image/png, ~245 KB]`) instead of dropping them — base64 in *text* costs ~1 token per 3-4 chars and the model cannot see it, while MCP image blocks go through the vision path at a fixed low cost. `extract_inline_images()` and the sanitizer share one data-URI parser so placeholder numbers always match `get_card_image(index)`. Never inline base64 image data into text responses.
+
+**Attachment URL gotcha:** Planka v2 nests the download/link URL in `data.url` (v1 had it top-level); the file size field is `data.size` on some releases and `data.sizeInBytes` on others — `attachment_summary()` in `src/tools/mod.rs` tolerates all variants. File download routes (`/attachments/{id}/download/{filename}`) authenticate via the `accessToken` **cookie**, not the `Authorization` header, so bare URLs are only openable in a logged-in browser; `get_attachment` downloads server-side and sends the token both ways.
 
 ## Adding New Tools
 
@@ -116,6 +122,7 @@ Find all Endpoints in the swagger docs: https://plankanban.github.io/planka/swag
 - `PATCH /api/cards/{cardId}` - Update/move card
 - `DELETE /api/cards/{cardId}` - Delete card
 - `DELETE /api/lists/{listId}` - Delete list
+- `GET /attachments/{id}/download/{filename}` - Download attachment file (cookie auth, not under `/api`)
 
 ## Constraints
 

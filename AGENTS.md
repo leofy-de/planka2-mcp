@@ -57,9 +57,12 @@ LLMs pay context for every byte we return. We aggressively trim:
 
 - Card descriptions are sanitized in
   [`src/planka/sanitize.rs`](src/planka/sanitize.rs): inline
-  `data:image/...;base64,...` blobs are replaced with `[image omitted]`, long
-  base64 runs become `[binary omitted]`, and the result is capped at **1500
-  characters**.
+  `data:image/...;base64,...` blobs are replaced with numbered placeholders
+  (`[inline image #1: image/png, ~245 KB]`, fetchable as a real image via
+  `get_card_image`), long base64 runs become `[binary omitted]`, and the
+  result is capped at **1500 characters**. Base64 in text is never returned —
+  the model can't see it and it wastes ~1 token per 3–4 characters; MCP
+  `image` content blocks are the only correct way to return an image.
 - `find_cards` returns only `{id, name, list}` — never the full description.
 - Listing tools include counts and IDs but skip nested timestamps unless they
   matter.

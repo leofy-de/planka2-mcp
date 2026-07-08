@@ -158,7 +158,14 @@ pub struct ToolCallResult {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ToolContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
 }
 
 impl ToolCallResult {
@@ -181,6 +188,24 @@ impl ToolCallResult {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_image_content_serializes_with_mime_type_key() {
+        let content = ToolContent::Image {
+            data: "aGVsbG8=".to_string(),
+            mime_type: "image/png".to_string(),
+        };
+
+        let json = serde_json::to_value(&content).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "type": "image",
+                "data": "aGVsbG8=",
+                "mimeType": "image/png"
+            })
+        );
+    }
 
     #[test]
     fn test_tool_annotations_serializes_correctly() {
