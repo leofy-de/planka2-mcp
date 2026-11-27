@@ -250,6 +250,26 @@ pub fn list_tools() -> Vec<Tool> {
             annotations: programmatic_annotations(),
         },
         Tool {
+            name: "add_card_labels".to_string(),
+            description: "Add labels to a card by name (case-insensitive) or id. Resolves against the card's own board labels, skips labels the card already has, and returns the card's resulting label names. Unknown names fail with the list of available board labels. Do NOT call `get_card_context` first just to look up label ids.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card ID to label"
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Label names (case-insensitive) or label IDs from the card's board"
+                    }
+                },
+                "required": ["card_id", "labels"]
+            }),
+            annotations: programmatic_annotations(),
+        },
+        Tool {
             name: "delete_card".to_string(),
             description: "Delete a card permanently (destructive operation - not recommended).".to_string(),
             input_schema: json!({
@@ -281,6 +301,7 @@ pub async fn call_tool(client: &PlankaClient, name: &str, args: Option<Value>) -
         "get_attachment" => get_attachment(client, args).await,
         "get_card_image" => get_card_image(client, args).await,
         "add_comment" => add_comment(client, args).await,
+        "add_card_labels" => add_card_labels(client, args).await,
         "delete_card" => delete_card(client, args).await,
         _ => ToolCallResult::error(format!("Unknown tool: {name}")),
     }
@@ -1226,6 +1247,107 @@ async fn add_comment(client: &PlankaClient, args: Option<Value>) -> ToolCallResu
 }
 
 #[derive(Deserialize)]
+struct AddCardLabelsArgs {
+    card_id: String,
+    labels: Vec<String>,
+}
+
+/// Resolve each requested label (id or case-insensitive name) against the
+/// board labels. Returns the label ids, or the unknown requests.
+fn resolve_label_ids(
+    board_labels: &[Value],
+    requested: &[String],
+) -> Result<Vec<String>, Vec<String>> {
+    let mut ids = Vec::new();
+    let mut unknown = Vec::new();
+    for req in requested {
+        let found = board_labels.iter().find(|l| {
+            l.get("id").and_then(|v| v.as_str()) == Some(req.as_str())
+                || l.get("name")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|n| n.eq_ignore_ascii_case(req))
+        });
+        match found.and_then(|l| l.get("id").and_then(|v| v.as_str())) {
+            Some(id) => ids.push(id.to_string()),
+            None => unknown.push(req.clone()),
+        }
+    }
+    if unknown.is_empty() {
+        Ok(ids)
+    } else {
+        Err(unknown)
+    }
+}
+
+async fn add_card_labels(client: &PlankaClient, args: Option<Value>) -> ToolCallResult {
+    let args: AddCardLabelsArgs = match args {
+        Some(v) => match serde_json::from_value(v) {
+            Ok(a) => a,
+            Err(e) => return ToolCallResult::error(format!("Invalid arguments: {e}")),
+        },
+        None => return ToolCallResult::error("Missing required arguments: card_id, labels"),
+    };
+
+    let detail = match client.get_card(&args.card_id).await {
+        Ok(d) => d,
+        Err(e) => return ToolCallResult::error(format!("Failed to get card: {e}")),
+    };
+    let board_id = match detail.item.board_id.as_deref() {
+        Some(id) => id,
+        None => return ToolCallResult::error("Card has no board_id"),
+    };
+    let board_resp = match client.get_board(board_id).await {
+        Ok(b) => b,
+        Err(e) => return ToolCallResult::error(format!("Failed to get board: {e}")),
+    };
+    let board_labels = &board_resp.included.labels;
+
+    let wanted = match resolve_label_ids(board_labels, &args.labels) {
+        Ok(ids) => ids,
+        Err(unknown) => {
+            let available: Vec<&str> = board_labels
+                .iter()
+                .filter_map(|l| l.get("name").and_then(|v| v.as_str()))
+                .collect();
+            return ToolCallResult::error(format!(
+                "Unknown label(s): {}. Available board labels: {}",
+                unknown.join(", "),
+                available.join(", ")
+            ));
+        }
+    };
+
+    let mut current: Vec<String> = detail
+        .included
+        .card_labels
+        .iter()
+        .filter_map(|cl| cl.get("labelId").and_then(|v| v.as_str()))
+        .map(String::from)
+        .collect();
+
+    for id in wanted {
+        if current.contains(&id) {
+            continue;
+        }
+        if let Err(e) = client.add_card_label(&args.card_id, &id).await {
+            return ToolCallResult::error(format!("Failed to add label {id}: {e}"));
+        }
+        current.push(id);
+    }
+
+    let names: Vec<&str> = current
+        .iter()
+        .filter_map(|id| {
+            board_labels
+                .iter()
+                .find(|l| l.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        })
+        .filter_map(|l| l.get("name").and_then(|v| v.as_str()))
+        .collect();
+    ToolCallResult::text(json!({ "labels": names }).to_string())
+}
+
+#[derive(Deserialize)]
 struct DeleteCardArgs {
     card_id: String,
 }
@@ -1253,7 +1375,7 @@ mod tests {
     #[test]
     fn test_list_tools_returns_all_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 12, "Expected 12 tools");
+        assert_eq!(tools.len(), 13, "Expected 13 tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"list_projects"));
@@ -1267,6 +1389,7 @@ mod tests {
         assert!(names.contains(&"update_card"));
         assert!(names.contains(&"move_card"));
         assert!(names.contains(&"add_comment"));
+        assert!(names.contains(&"add_card_labels"));
         assert!(names.contains(&"delete_card"));
     }
 
@@ -1331,6 +1454,23 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_label_ids() {
+        let labels = vec![
+            json!({ "id": "1", "name": "Bug" }),
+            json!({ "id": "2", "name": "Feature" }),
+        ];
+        let req = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            resolve_label_ids(&labels, &req(&["bug", "2"])),
+            Ok(vec!["1".to_string(), "2".to_string()])
+        );
+        assert_eq!(
+            resolve_label_ids(&labels, &req(&["bug", "nope"])),
+            Err(vec!["nope".to_string()])
+        );
+    }
+
+    #[test]
     fn test_programmatic_tools_have_allowed_callers() {
         let tools = list_tools();
         let programmatic_tools = [
@@ -1345,6 +1485,7 @@ mod tests {
             "update_card",
             "move_card",
             "add_comment",
+            "add_card_labels",
         ];
 
         for tool_name in programmatic_tools {
