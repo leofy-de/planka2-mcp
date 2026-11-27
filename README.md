@@ -238,6 +238,7 @@ reference, with every parameter and JSON schema. Quick summary:
 | `update_card`         | Update title or description (just `card_id` plus what you want to change).                          |
 | `move_card`           | Move a card. Accepts `list_id` **or** `list_name` (resolved on the card's own board).               |
 | `add_comment`         | Post a Markdown comment on a card.                                                                  |
+| `add_card_labels`     | Add labels to a card by name (case-insensitive) or id; skips ones already set.                      |
 | `delete_card`         | Delete a card permanently. **Destructive** — excluded from programmatic calling.                    |
 
 All tools except `delete_card` support

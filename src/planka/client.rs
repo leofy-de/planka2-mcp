@@ -470,6 +470,26 @@ impl PlankaClient {
         Ok(())
     }
 
+    pub async fn add_card_label(&self, card_id: &str, label_id: &str) -> Result<(), PlankaError> {
+        let path = format!("/api/cards/{card_id}/card-labels");
+
+        let body = serde_json::json!({ "labelId": label_id });
+
+        let resp = self.request(reqwest::Method::POST, &path)
+            .await?
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PlankaError::Status(status, body));
+        }
+
+        Ok(())
+    }
+
     /// Download an attachment file via its `data.url` from the Planka API.
     ///
     /// The `/attachments/{id}/download/{filename}` route authenticates via the
